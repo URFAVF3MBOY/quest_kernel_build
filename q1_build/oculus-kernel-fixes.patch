@@ -1,0 +1,206 @@
+diff --git a/drivers/bluetooth/Makefile b/drivers/bluetooth/Makefile
+index 1151d0d1..3a9c94fe 100644
+--- a/drivers/bluetooth/Makefile
++++ b/drivers/bluetooth/Makefile
+@@ -44,3 +44,4 @@ hci_uart-$(CONFIG_BT_HCIUART_QCA)	+= hci_qca.o
+ hci_uart-objs				:= $(hci_uart-y)
+ 
+ ccflags-y += -D__CHECK_ENDIAN__
++ccflags-y += -I$(src)
+diff --git a/drivers/gpu/msm/Makefile b/drivers/gpu/msm/Makefile
+index 1ccf3d56..1f550ed8 100644
+--- a/drivers/gpu/msm/Makefile
++++ b/drivers/gpu/msm/Makefile
+@@ -1,4 +1,4 @@
+-ccflags-y := -Idrivers/staging/android
++ccflags-y := -Idrivers/staging/android -I$(src)
+ 
+ msm_kgsl_core-y = \
+ 	kgsl.o \
+diff --git a/drivers/media/platform/msm/camera_v2/common/Makefile b/drivers/media/platform/msm/camera_v2/common/Makefile
+index e3765fc4..5b82f63a 100644
+--- a/drivers/media/platform/msm/camera_v2/common/Makefile
++++ b/drivers/media/platform/msm/camera_v2/common/Makefile
+@@ -1,3 +1,5 @@
+ ccflags-y += -Idrivers/media/platform/msm/camera_v2/
+ ccflags-y += -Idrivers/misc/
+ obj-$(CONFIG_MSMB_CAMERA) += msm_camera_io_util.o cam_smmu_api.o cam_hw_ops.o cam_soc_api.o msm_camera_tz_util.o msm_cam_cx_ipeak.o
++
++ccflags-y += -I$(src)
+diff --git a/drivers/media/platform/msm/camera_v2/isp/Makefile b/drivers/media/platform/msm/camera_v2/isp/Makefile
+index 621d81d3..48988814 100644
+--- a/drivers/media/platform/msm/camera_v2/isp/Makefile
++++ b/drivers/media/platform/msm/camera_v2/isp/Makefile
+@@ -3,3 +3,5 @@ ccflags-y += -Idrivers/media/platform/msm/camera_v2/sensor/io
+ ccflags-y += -Idrivers/media/platform/msm/camera_v2/common/
+ obj-$(CONFIG_MSMB_CAMERA) += msm_buf_mgr.o msm_isp_util.o msm_isp_axi_util.o msm_isp_stats_util.o
+ obj-$(CONFIG_MSMB_CAMERA) += msm_isp48.o msm_isp47.o msm_isp46.o msm_isp44.o msm_isp40.o msm_isp.o
++
++ccflags-y += -I$(src)
+diff --git a/drivers/media/platform/msm/camera_v2/sensor/io/Makefile b/drivers/media/platform/msm/camera_v2/sensor/io/Makefile
+index 549c35a8..0da8cbf8 100644
+--- a/drivers/media/platform/msm/camera_v2/sensor/io/Makefile
++++ b/drivers/media/platform/msm/camera_v2/sensor/io/Makefile
+@@ -4,3 +4,5 @@ ccflags-y += -Idrivers/media/platform/msm/camera_v2/sensor
+ ccflags-y += -Idrivers/media/platform/msm/camera_v2/sensor/cci
+ ccflags-y += -Idrivers/misc/
+ obj-$(CONFIG_MSMB_CAMERA)   += msm_camera_cci_i2c.o msm_camera_qup_i2c.o msm_camera_spi.o msm_camera_dt_util.o msm_camera_tz_i2c.o
++
++ccflags-y += -I$(src)
+diff --git a/drivers/platform/msm/ipa/ipa_v2/Makefile b/drivers/platform/msm/ipa/ipa_v2/Makefile
+index 69b8a4c9..dc1a7b20 100644
+--- a/drivers/platform/msm/ipa/ipa_v2/Makefile
++++ b/drivers/platform/msm/ipa/ipa_v2/Makefile
+@@ -4,3 +4,5 @@ ipat-y := ipa.o ipa_debugfs.o ipa_hdr.o ipa_flt.o ipa_rt.o ipa_dp.o ipa_client.o
+ 	ipa_uc.o ipa_uc_wdi.o ipa_dma.o ipa_uc_mhi.o ipa_mhi.o ipa_uc_ntn.o
+ 
+ obj-$(CONFIG_RMNET_IPA) += rmnet_ipa.o ipa_qmi_service_v01.o ipa_qmi_service.o rmnet_ipa_fd_ioctl.o
++
++ccflags-y += -I$(src)
+diff --git a/drivers/platform/msm/ipa/ipa_v3/Makefile b/drivers/platform/msm/ipa/ipa_v3/Makefile
+index a4faaea7..81ade233 100644
+--- a/drivers/platform/msm/ipa/ipa_v3/Makefile
++++ b/drivers/platform/msm/ipa/ipa_v3/Makefile
+@@ -6,3 +6,5 @@ ipat-y := ipa.o ipa_debugfs.o ipa_hdr.o ipa_flt.o ipa_rt.o ipa_dp.o ipa_client.o
+ 	ipa_uc.o ipa_uc_wdi.o ipa_dma.o ipa_uc_mhi.o ipa_mhi.o ipa_uc_ntn.o
+ 
+ obj-$(CONFIG_RMNET_IPA3) += rmnet_ipa.o ipa_qmi_service_v01.o ipa_qmi_service.o rmnet_ipa_fd_ioctl.o
++
++ccflags-y += -I$(src)
+diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
+index 12482ee2..9c0f0977 100644
+--- a/drivers/soc/qcom/Makefile
++++ b/drivers/soc/qcom/Makefile
+@@ -113,3 +113,5 @@ obj-$(CONFIG_MSM_CACHE_M4M_ERP64) += cache_m4m_erp64.o
+ obj-$(CONFIG_MSM_HAB) += hab/
+ obj-$(CONFIG_QCOM_QDSS_BRIDGE) += qdss_bridge.o
+ obj-$(CONFIG_MFSE_QMI) += mfse_qmi_v01.o mfse_qmi.o
++
++ccflags-y += -I$(src)
+diff --git a/drivers/staging/oculus/Makefile b/drivers/staging/oculus/Makefile
+index f611a26d..485ac91c 100644
+--- a/drivers/staging/oculus/Makefile
++++ b/drivers/staging/oculus/Makefile
+@@ -32,5 +32,4 @@ obj-$(CONFIG_RT600_CTRL) 		+= rt600-ctrl.o
+ obj-$(CONFIG_TOP_PANEL_SENSOR)		+= top_panel_sensor.o
+ obj-$(CONFIG_SPI_STP)			+= stp/
+ obj-$(CONFIG_VIRTUAL_SENSOR_UTILS)	+= virtual_sensor_utils.o
+-obj-y					+= internal/
+ obj-y					+= mcu/
+diff --git a/drivers/staging/oculus/mcu/syncboss/Makefile b/drivers/staging/oculus/mcu/syncboss/Makefile
+index 3f327fa1..04847190 100644
+--- a/drivers/staging/oculus/mcu/syncboss/Makefile
++++ b/drivers/staging/oculus/mcu/syncboss/Makefile
+@@ -2,3 +2,5 @@ obj-$(CONFIG_SYNCBOSS)			+= spi_fastpath.o
+ obj-$(CONFIG_SYNCBOSS)			+= syncboss_spi.o
+ obj-$(CONFIG_SYNCBOSS)			+= syncboss_sysfs.o
+ obj-$(CONFIG_SYNCBOSS_CAMERA_CONTROL)	+= syncboss_camera.o
++
++ccflags-y += -I$(src)
+diff --git a/drivers/tty/serial/amba-pl011.c b/drivers/tty/serial/amba-pl011.c
+index 2a2975c3..5516af17 100644
+--- a/drivers/tty/serial/amba-pl011.c
++++ b/drivers/tty/serial/amba-pl011.c
+@@ -1420,6 +1420,17 @@ static unsigned int pl011_get_mctrl(struct uart_port *port)
+ 	TIOCMBIT(UART01x_FR_CTS, TIOCM_CTS);
+ 	TIOCMBIT(UART011_FR_RI, TIOCM_RNG);
+ #undef TIOCMBIT
++
++	/*
++	 * Some platforms (e.g. QEMU's "virt" board PL011 model) never wire
++	 * up real modem-control lines, so DCD is never reported asserted.
++	 * That makes tty_port_block_til_ready() (uart_carrier_raised()->
++	 * get_mctrl()) block forever on open() when CLOCAL isn't already
++	 * active, hanging any respawn/getty tty open indefinitely. Treat
++	 * carrier/DSR/CTS as always present, as is standard practice for
++	 * UARTs without real modem-control wiring.
++	 */
++	result |= TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
+ 	return result;
+ }
+ 
+@@ -1544,6 +1555,10 @@ static int pl011_hwinit(struct uart_port *port)
+ 		return retval;
+ 
+ 	uap->port.uartclk = clk_get_rate(uap->clk);
++	/* No resolvable clk (see pl011_probe) -- fall back to a sane
++	 * default so baud-rate divisor math doesn't divide by zero. */
++	if (!uap->port.uartclk)
++		uap->port.uartclk = 24000000;
+ 
+ 	/* Clear pending error and receive interrupts */
+ 	writew(UART011_OEIS | UART011_BEIS | UART011_PEIS | UART011_FEIS |
+@@ -2175,6 +2190,10 @@ static int __init pl011_console_setup(struct console *co, char *options)
+ 	}
+ 
+ 	uap->port.uartclk = clk_get_rate(uap->clk);
++	/* No resolvable clk (see pl011_probe) -- fall back to a sane
++	 * default so baud-rate divisor math doesn't divide by zero. */
++	if (!uap->port.uartclk)
++		uap->port.uartclk = 24000000;
+ 
+ 	if (uap->vendor->fixed_options) {
+ 		baud = uap->fixed_baud;
+@@ -2368,8 +2387,23 @@ static int pl011_probe(struct amba_device *dev, const struct amba_id *id)
+ 		return -ENOMEM;
+ 
+ 	uap->clk = devm_clk_get(&dev->dev, NULL);
+-	if (IS_ERR(uap->clk))
+-		return PTR_ERR(uap->clk);
++	if (IS_ERR(uap->clk)) {
++		/*
++		 * Some platforms (e.g. QEMU's "virt" board) describe this
++		 * UART's clock via a DT "fixed-clock" phandle that this
++		 * particular kernel's active clock provider (COMMON_CLK_MSM,
++		 * built without the generic common clock framework core)
++		 * can never resolve -- clk_get() then either defers forever
++		 * or fails outright. The rest of this driver's clk_prepare/
++		 * clk_enable/clk_get_rate call sites already tolerate a NULL
++		 * struct clk (see drivers/clk/msm/clock.c), so degrade
++		 * gracefully instead of failing probe entirely.
++		 */
++		dev_warn(&dev->dev,
++			 "no usable clock (%ld), continuing without one\n",
++			 PTR_ERR(uap->clk));
++		uap->clk = NULL;
++	}
+ 
+ 	uap->vendor = vendor;
+ 	uap->lcrh_rx = vendor->lcrh_rx;
+diff --git a/include/soc/qcom/scm.h b/include/soc/qcom/scm.h
+index e741d540..3d194039 100644
+--- a/include/soc/qcom/scm.h
++++ b/include/soc/qcom/scm.h
+@@ -241,5 +241,7 @@ static inline bool scm_is_secure_device(void)
+ {
+ 	return false;
+ }
++
++static DEFINE_MUTEX(scm_lmh_lock);
+ #endif
+ #endif
+diff --git a/scripts/Makefile.lib b/scripts/Makefile.lib
+index e997361f..2e337d4b 100644
+--- a/scripts/Makefile.lib
++++ b/scripts/Makefile.lib
+@@ -279,8 +279,6 @@ cmd_gzip = (cat $(filter-out FORCE,$^) | gzip -n -f -9 > $@) || \
+ ifeq ($(KBUILD_ENABLE_EXTRA_GCC_CHECKS),)
+ DTC_FLAGS += -Wno-unit_address_vs_reg \
+ 	-Wno-avoid_default_addr_size \
+-	-Wno-simple_bus_reg \
+-	-Wno-unit_address_format \
+ 	-Wno-reg_format
+ endif
+ 
+diff --git a/sound/soc/msm/Makefile b/sound/soc/msm/Makefile
+index 4d2a360a..4e1452ec 100644
+--- a/sound/soc/msm/Makefile
++++ b/sound/soc/msm/Makefile
+@@ -1,5 +1,7 @@
+ # MSM Machine Support
+ 
++ccflags-y += -I$(src)
++
+ snd-soc-hostless-pcm-objs := msm-pcm-hostless.o
+ obj-$(CONFIG_SND_SOC_MSM_HOSTLESS_PCM) += snd-soc-hostless-pcm.o
+ 
