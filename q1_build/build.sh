@@ -19,6 +19,7 @@ TOOLCHAIN_DIR="$WORK_DIR/toolchain"
 AARCH64_GCC="$TOOLCHAIN_DIR/aarch64-linux-android-4.9"
 ARM_GCC="$TOOLCHAIN_DIR/arm-linux-androideabi-4.9"
 BUILDROOT_DIR="$WORK_DIR/buildroot"
+BUILD_DIR="$WORK_DIR/build"
 MODE="${1:-all}"
 
 log() { echo -e "\n=== $* ===\n"; }
@@ -98,11 +99,11 @@ EOF
 log "Building real-device kernel (your kernel.config)"
 cp "$KERNEL_CONFIG" .config
 sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
-yes "" | make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE oldconfig
+make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
 make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
   HOSTCFLAGS="-fcommon" -j"$(nproc)" Image dtbs
 
-OUT_DEVICE="$WORK_DIR/oculus-quest1-device-kernel"
+OUT_DEVICE="$BUILD_DIR/oculus-quest1-device-kernel"
 mkdir -p "$OUT_DEVICE/dtbs"
 cp arch/arm64/boot/Image "$OUT_DEVICE/Image"
 cp .config "$OUT_DEVICE/.config"
@@ -136,7 +137,7 @@ CONFIG_9P_FS=y
 CONFIG_NET_9P=y
 CONFIG_NET_9P_VIRTIO=y
 EOF
-yes "" | make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE oldconfig
+make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
 # Disable real-hardware-only Qualcomm SMC/TrustZone calls that crash or hang
 # under QEMU (no real Qualcomm secure-monitor firmware exists there).
 sed -i \
@@ -148,13 +149,14 @@ sed -i \
   -e 's/^CONFIG_MSM_IPC_ROUTER_SMD_XPRT=y/# CONFIG_MSM_IPC_ROUTER_SMD_XPRT is not set/' \
   -e 's/^CONFIG_MSM_IPC_ROUTER_GLINK_XPRT=y/# CONFIG_MSM_IPC_ROUTER_GLINK_XPRT is not set/' \
   .config
-yes "" | make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE oldconfig
+make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
 make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
   HOSTCFLAGS="-fcommon" -j"$(nproc)" Image
 
-mkdir -p "$WORK_DIR/qemu-kernel"
-cp arch/arm64/boot/Image "$WORK_DIR/qemu-kernel/Image"
-log "QEMU-variant kernel saved to $WORK_DIR/qemu-kernel/Image"
+mkdir -p "$BUILD_DIR/qemu-kernel"
+cp arch/arm64/boot/Image "$BUILD_DIR/qemu-kernel/Image"
+cp .config "$BUILD_DIR/qemu-kernel/.config"
+log "QEMU-variant kernel saved to $BUILD_DIR/qemu-kernel/Image"
 
 # --- 6b. Fix QEMU's device tree so the PL011/PL061/PL031 AMBA devices
 # actually bind (see README-REPRODUCE.md: this kernel's active clock
@@ -165,12 +167,12 @@ log "QEMU-variant kernel saved to $WORK_DIR/qemu-kernel/Image"
 # which makes amba_device_add() skip its clock-based ID auto-detection
 # entirely.
 log "Patching QEMU's device tree (AMBA PrimeCell ID override)"
-qemu-system-aarch64 -M virt,dumpdtb="$WORK_DIR/qemu-kernel/virt.dtb" -cpu cortex-a53 \
-  -m 1024 -nographic -smp 1 -kernel "$WORK_DIR/qemu-kernel/Image" -no-reboot \
+qemu-system-aarch64 -M virt,dumpdtb="$BUILD_DIR/qemu-kernel/virt.dtb" -cpu cortex-a53 \
+  -m 1024 -nographic -smp 1 -kernel "$BUILD_DIR/qemu-kernel/Image" -no-reboot \
   < /dev/null > /dev/null 2>&1 || true
-fdtput -t x "$WORK_DIR/qemu-kernel/virt.dtb" /pl011@9000000 arm,primecell-periphid 0x00041011
-fdtput -t x "$WORK_DIR/qemu-kernel/virt.dtb" /pl061@9030000 arm,primecell-periphid 0x00041061
-fdtput -t x "$WORK_DIR/qemu-kernel/virt.dtb" /pl031@9010000 arm,primecell-periphid 0x00041031
+fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl011@9000000 arm,primecell-periphid 0x00041011
+fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl061@9030000 arm,primecell-periphid 0x00041061
+fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl031@9010000 arm,primecell-periphid 0x00041031
 
 # --- 7. Buildroot rootfs ----------------------------------------------------
 log "Setting up Buildroot"
@@ -264,7 +266,8 @@ sudo umount "$MNT"
 rmdir "$MNT"
 
 # --- 9. Run script -----------------------------------------------------
-cat > "$WORK_DIR/run_qemu.sh" << EOF
+mkdir -p "$BUILD_DIR"
+cat > "$BUILD_DIR/run_qemu.sh" << EOF
 #!/bin/bash
 # Boot the QEMU-bootable Oculus Quest 1 kernel variant with the Buildroot
 # rootfs under qemu-system-aarch64 (virt board).
@@ -283,10 +286,10 @@ exec qemu-system-aarch64 -M virt -cpu cortex-a53 -m 1024 -nographic -smp 1 \\
   -device virtio-rng-device \\
   -no-reboot
 EOF
-chmod +x "$WORK_DIR/run_qemu.sh"
+chmod +x "$BUILD_DIR/run_qemu.sh"
 
 log "Done."
 echo "Real Quest 1 kernel:  $OUT_DEVICE/"
-echo "QEMU-variant kernel:  $WORK_DIR/qemu-kernel/Image"
+echo "QEMU-variant kernel:  $BUILD_DIR/qemu-kernel/Image"
 echo "Buildroot rootfs:     $BUILDROOT_DIR/output/images/rootfs.ext4"
-echo "Run under QEMU:       $WORK_DIR/run_qemu.sh"
+echo "Run under QEMU:       $BUILD_DIR/run_qemu.sh"
