@@ -1,0 +1,343 @@
+diff --git a/drivers/block/mtip32xx/mtip32xx.c b/drivers/block/mtip32xx/mtip32xx.c
+index 153e2cdec..97c2ff9ff 100644
+--- a/drivers/block/mtip32xx/mtip32xx.c
++++ b/drivers/block/mtip32xx/mtip32xx.c
+@@ -26,7 +26,7 @@
+ #include <linux/dma-mapping.h>
+ #include <linux/idr.h>
+ #include <linux/kthread.h>
+-#include <../drivers/ata/ahci.h>
++#include "../drivers/ata/ahci.h"
+ #include <linux/export.h>
+ #include <linux/debugfs.h>
+ #include <linux/prefetch.h>
+diff --git a/drivers/input/touchscreen/st/fts_lib/ftsFlash.c b/drivers/input/touchscreen/st/fts_lib/ftsFlash.c
+index 9fc3926de..926dbcdfd 100644
+--- a/drivers/input/touchscreen/st/fts_lib/ftsFlash.c
++++ b/drivers/input/touchscreen/st/fts_lib/ftsFlash.c
+@@ -72,7 +72,7 @@
+ #include "../fts.h"//needed for including the define FW_H_FILE
+ 
+ #ifdef FW_H_FILE
+-#include <../fts_fw.h>
++#include "../fts_fw.h"
+ #define LOAD_FW_FROM 1
+ #else
+ #define LOAD_FW_FROM 0
+diff --git a/drivers/input/touchscreen/st/fts_lib/ftsTest.c b/drivers/input/touchscreen/st/fts_lib/ftsTest.c
+index baa0772cd..01f706051 100644
+--- a/drivers/input/touchscreen/st/fts_lib/ftsTest.c
++++ b/drivers/input/touchscreen/st/fts_lib/ftsTest.c
+@@ -73,7 +73,7 @@
+ #include "../fts.h"
+ 
+ #ifdef LIMITS_H_FILE
+-#include <../fts_limits.h>
++#include "../fts_limits.h"
+ #endif
+ 
+ static char tag[8] = "[ FTS ]\0";
+diff --git a/drivers/platform/msm/Makefile b/drivers/platform/msm/Makefile
+index 71203dd6d..e549caa0e 100644
+--- a/drivers/platform/msm/Makefile
++++ b/drivers/platform/msm/Makefile
+@@ -13,3 +13,5 @@ obj-$(CONFIG_SPS) += sps/
+ obj-$(CONFIG_MSM_11AD) += msm_11ad/
+ obj-$(CONFIG_EP_PCIE) += ep_pcie/
+ obj-$(CONFIG_MSM_MHI_DEV) += mhi_dev/
++
++ccflags-y += -I$(src)
+diff --git a/drivers/scsi/pcmcia/nsp_cs.c b/drivers/scsi/pcmcia/nsp_cs.c
+index bc5a62351..a41555a8b 100644
+--- a/drivers/scsi/pcmcia/nsp_cs.c
++++ b/drivers/scsi/pcmcia/nsp_cs.c
+@@ -41,7 +41,7 @@
+ #include <asm/io.h>
+ #include <asm/irq.h>
+ 
+-#include <../drivers/scsi/scsi.h>
++#include "../drivers/scsi/scsi.h"
+ #include <scsi/scsi_host.h>
+ 
+ #include <scsi/scsi.h>
+diff --git a/drivers/staging/qcacld-3.0/Kbuild b/drivers/staging/qcacld-3.0/Kbuild
+index dd73c3046..36c26ed6b 100644
+--- a/drivers/staging/qcacld-3.0/Kbuild
++++ b/drivers/staging/qcacld-3.0/Kbuild
+@@ -1,5 +1,5 @@
+ # Redirect root path through a symlink to avoid command line overflows
+-PATCH_LONG_PATH := $(srctree)/drivers/staging/qcacld-3.0
++PATCH_LONG_PATH := $(abspath $(srctree)/drivers/staging/qcacld-3.0)
+ PATCH_SHORT_PATH := /tmp/qcacld-3.0
+ PATCH_SYMLINK := $(shell ln -nsf $(PATCH_LONG_PATH) $(PATCH_SHORT_PATH))
+ 
+diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
+index 0054bc910..fd4a9e33e 100644
+--- a/drivers/thermal/thermal_core.c
++++ b/drivers/thermal/thermal_core.c
+@@ -21,7 +21,7 @@
+ #include <linux/of.h>
+ #include <linux/suspend.h>
+ #include <linux/kobject.h>
+-#include <../base/base.h>
++#include "../base/base.h"
+ 
+ #define CREATE_TRACE_POINTS
+ #include <trace/events/thermal.h>
+diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
+index a8d630a15..19428c629 100644
+--- a/drivers/tty/serial/Makefile
++++ b/drivers/tty/serial/Makefile
+@@ -3,6 +3,8 @@
+ # Makefile for the kernel serial device drivers.
+ #
+ 
++ccflags-y += -I$(src)
++
+ obj-$(CONFIG_SERIAL_CORE) += serial_core.o
+ 
+ obj-$(CONFIG_SERIAL_EARLYCON) += earlycon.o
+diff --git a/include/trace/events/trace_msm_pil_event.h b/include/trace/events/trace_msm_pil_event.h
+index 24b4b1c00..0a27f0261 100644
+--- a/include/trace/events/trace_msm_pil_event.h
++++ b/include/trace/events/trace_msm_pil_event.h
+@@ -10,7 +10,7 @@
+ #define _TRACE_MSM_PIL_EVENT_H_
+ 
+ #include <linux/tracepoint.h>
+-#include <../drivers/soc/qcom/peripheral-loader.h>
++#include "../drivers/soc/qcom/peripheral-loader.h"
+ 
+ TRACE_EVENT(pil_event,
+ 
+diff --git a/include/trace/events/trace_msm_ssr_event.h b/include/trace/events/trace_msm_ssr_event.h
+index b1c1f978d..e3c76e169 100644
+--- a/include/trace/events/trace_msm_ssr_event.h
++++ b/include/trace/events/trace_msm_ssr_event.h
+@@ -10,7 +10,7 @@
+ #define _TRACE_MSM_SSR_EVENT_H_
+ 
+ #include <linux/tracepoint.h>
+-#include <../drivers/soc/qcom/peripheral-loader.h>
++#include "../drivers/soc/qcom/peripheral-loader.h"
+ 
+ TRACE_EVENT(pil_notif,
+ 
+diff --git a/include/trace/hooks/binder.h b/include/trace/hooks/binder.h
+index 234917699..01a229cb8 100644
+--- a/include/trace/hooks/binder.h
++++ b/include/trace/hooks/binder.h
+@@ -21,9 +21,9 @@ struct binder_work;
+ struct binder_buffer;
+ #else
+ /* struct binder_alloc */
+-#include <../drivers/android/binder_alloc.h>
++#include "../drivers/android/binder_alloc.h"
+ /* struct binder_proc, struct binder_thread, struct binder_transaction */
+-#include <../drivers/android/binder_internal.h>
++#include "../drivers/android/binder_internal.h"
+ #endif
+ 
+ #ifdef __GENKSYMS__
+diff --git a/include/trace/hooks/block.h b/include/trace/hooks/block.h
+index 9126e6c0e..dbc02b010 100644
+--- a/include/trace/hooks/block.h
++++ b/include/trace/hooks/block.h
+@@ -17,9 +17,9 @@ struct blk_mq_tag_set;
+ struct blk_mq_hw_ctx;
+ #else
+ /* struct blk_mq_tags */
+-#include <../block/blk-mq-tag.h>
++#include "../block/blk-mq-tag.h"
+ /* struct blk_mq_alloc_data */
+-#include <../block/blk-mq.h>
++#include "../block/blk-mq.h"
+ /* struct blk_mq_tag_set struct blk_mq_hw_ctx*/
+ #include <linux/blk-mq.h>
+ #endif /* __GENKSYMS__ */
+diff --git a/include/trace/hooks/logbuf.h b/include/trace/hooks/logbuf.h
+index 379419255..8d0cff47b 100644
+--- a/include/trace/hooks/logbuf.h
++++ b/include/trace/hooks/logbuf.h
+@@ -15,7 +15,7 @@ struct printk_record;
+ struct printk_ringbuffer;
+ #else
+ /* struct printk_record, struct printk_ringbuffer */
+-#include <../kernel/printk/printk_ringbuffer.h>
++#include "../kernel/printk/printk_ringbuffer.h"
+ #endif /* __GENKSYMS__ */
+ 
+ DECLARE_HOOK(android_vh_logbuf,
+diff --git a/include/trace/hooks/mm.h b/include/trace/hooks/mm.h
+index 150cbdd4a..b9e3d0504 100644
+--- a/include/trace/hooks/mm.h
++++ b/include/trace/hooks/mm.h
+@@ -32,7 +32,7 @@ struct mem_cgroup;
+ struct readahead_control;
+ #else
+ /* struct slabinfo */
+-#include <../mm/slab.h>
++#include "../mm/slab.h"
+ /* struct cgroup_subsys_state */
+ #include <linux/cgroup-defs.h>
+ /* struct device */
+diff --git a/include/trace/hooks/mmc_core.h b/include/trace/hooks/mmc_core.h
+index eb012e9c8..059545702 100644
+--- a/include/trace/hooks/mmc_core.h
++++ b/include/trace/hooks/mmc_core.h
+@@ -14,7 +14,7 @@
+ struct sdhci_host;
+ #else
+ /* struct sdhci_host */
+-#include <../drivers/mmc/host/sdhci.h>
++#include "../drivers/mmc/host/sdhci.h"
+ #endif
+ 
+ #ifdef __GENKSYMS__
+diff --git a/include/trace/hooks/typec.h b/include/trace/hooks/typec.h
+index 825cb37bc..9babf4aec 100644
+--- a/include/trace/hooks/typec.h
++++ b/include/trace/hooks/typec.h
+@@ -16,7 +16,7 @@
+ struct tcpci_data;
+ #else
+ /* struct tcpci_data */
+-#include <../drivers/usb/typec/tcpm/tcpci.h>
++#include "../drivers/usb/typec/tcpm/tcpci.h"
+ #endif /* __GENKSYMS__ */
+ struct tcpci;
+ struct tcpm_port;
+diff --git a/include/trace/hooks/ufshcd.h b/include/trace/hooks/ufshcd.h
+index 1dc0ae956..47adef86a 100644
+--- a/include/trace/hooks/ufshcd.h
++++ b/include/trace/hooks/ufshcd.h
+@@ -18,7 +18,7 @@ struct request;
+ struct scsi_device;
+ #else
+ /* struct ufs_hba, struct ufshcd_lrb, struct uic_command */
+-#include <../drivers/scsi/ufs/ufshcd.h>
++#include "../drivers/scsi/ufs/ufshcd.h"
+ /* struct request */
+ #include <linux/blkdev.h>
+ /* struct scsi_device */
+diff --git a/kernel/sched/walt/walt_cfs.c b/kernel/sched/walt/walt_cfs.c
+index 6511e2513..b59c2dc42 100644
+--- a/kernel/sched/walt/walt_cfs.c
++++ b/kernel/sched/walt/walt_cfs.c
+@@ -9,7 +9,7 @@
+ 
+ #include "walt.h"
+ #include "trace.h"
+-#include <../../../drivers/android/binder_internal.h>
++#include "../../../drivers/android/binder_internal.h"
+ #include "../../../drivers/android/binder_trace.h"
+ 
+ static void create_util_to_cost_pd(struct em_perf_domain *pd)
+diff --git a/tools/perf/util/libunwind/arm64.c b/tools/perf/util/libunwind/arm64.c
+index 6b4e5a089..50c6d35ff 100644
+--- a/tools/perf/util/libunwind/arm64.c
++++ b/tools/perf/util/libunwind/arm64.c
+@@ -23,7 +23,7 @@
+ 
+ #include "unwind.h"
+ #include "libunwind-aarch64.h"
+-#include <../../../../arch/arm64/include/uapi/asm/perf_regs.h>
++#include "../../../../arch/arm64/include/uapi/asm/perf_regs.h"
+ #include "../../arch/arm64/util/unwind-libunwind.c"
+ 
+ /* NO_LIBUNWIND_DEBUG_FRAME is a feature flag for local libunwind,
+diff --git a/tools/perf/util/libunwind/x86_32.c b/tools/perf/util/libunwind/x86_32.c
+index 21c216c40..d187e7fc8 100644
+--- a/tools/perf/util/libunwind/x86_32.c
++++ b/tools/perf/util/libunwind/x86_32.c
+@@ -23,7 +23,7 @@
+ 
+ #include "unwind.h"
+ #include "libunwind-x86.h"
+-#include <../../../../arch/x86/include/uapi/asm/perf_regs.h>
++#include "../../../../arch/x86/include/uapi/asm/perf_regs.h"
+ 
+ /* HAVE_ARCH_X86_64_SUPPORT is used in'arch/x86/util/unwind-libunwind.c'
+  * for x86_32, we undef it to compile code for x86_32 only.
+
+diff --git a/arch/arm64/boot/dts/oculus/eureka/eureka-panel.dtsi b/arch/arm64/boot/dts/oculus/eureka/eureka-panel.dtsi
+index 525ee059b..0b18a073d 100644
+--- a/arch/arm64/boot/dts/oculus/eureka/eureka-panel.dtsi
++++ b/arch/arm64/boot/dts/oculus/eureka/eureka-panel.dtsi
+@@ -2,8 +2,6 @@
+ 
+ #include <dt-bindings/clock/qcom,dispcc-anorak.h>
+ 
+-#include "../unknown7/unknown7-dsi-panel-jdi-nvt-dsc-2392x2560-90hz-video.dtsi"
+-#include "../unknown7/unknown7-dsi-panel-sharp-nvt-dsc-2392x2560-90hz-video.dtsi"
+ #include "eureka-panel-boe.dtsi"
+ #include "eureka-panel-jdi.dtsi"
+ #include "eureka-panel-jdi-experimental.dtsi"
+@@ -17,9 +15,7 @@ &aliases {
+ 
+ &vendor {
+ 	display_panels: display_panels {
+-		panels = <&dsi_jdi_nvt_2392x2560_90Hz_dsc_video
+-			&dsi_sharp_nvt_2392x2560_90Hz_dsc_video
+-			&eureka_panel_jdi
++		panels = <&eureka_panel_jdi
+ 			&eureka_panel_jdi_experimental
+ 			&eureka_panel_sharp
+ 			&eureka_panel_sharp_experimental
+@@ -188,56 +184,6 @@ qcom,panel-supply-entry@3 {
+ 	};
+ };
+ 
+-&dsi_jdi_nvt_2392x2560_90Hz_dsc_video {
+-	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_eureka>;
+-	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_tokki_a";
+-	meta,blu-default-duty-cycle = <100>; /* 10% duty */
+-	qcom,mdss-dsi-bl-min-level = <0>;
+-	qcom,mdss-dsi-bl-max-level = <1000>;
+-	qcom,platform-reset-gpio = <&tlmm 108 0>;
+-	qcom,panel-sec-reset-gpio = <&tlmm 140 0>;
+-	qcom,mdss-dsi-reset-off-delay = <0>;
+-	qcom,mdss-dsi-sec-reset-off-delay = <30>;
+-	qcom,mdss-dsi-t-clk-post = <0x0F>;
+-	qcom,mdss-dsi-t-clk-pre = <0x1F>;
+-	qcom,dsi-select-clocks = "pll_byte_clk0", "pll_dsi_clk0";
+-
+-	meta,settling-time-target-us = <5430>;
+-
+-	qcom,mdss-dsi-display-timings {
+-		timing@0{
+-			qcom,display-topology = <4 4 2>;
+-			qcom,default-topology-index = <0>;
+-			qcom,disable-default-pps;
+-		};
+-	};
+-};
+-
+-&dsi_sharp_nvt_2392x2560_90Hz_dsc_video {
+-	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_eureka>;
+-	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_tokki_a";
+-	meta,blu-default-duty-cycle = <100>; /* 10% duty */
+-	qcom,mdss-dsi-bl-min-level = <0>;
+-	qcom,mdss-dsi-bl-max-level = <1000>;
+-	qcom,platform-reset-gpio = <&tlmm 108 0>;
+-	qcom,panel-sec-reset-gpio = <&tlmm 140 0>;
+-	qcom,mdss-dsi-reset-off-delay = <0>;
+-	qcom,mdss-dsi-sec-reset-off-delay = <30>;
+-	qcom,mdss-dsi-t-clk-post = <0x0F>;
+-	qcom,mdss-dsi-t-clk-pre = <0x1F>;
+-	qcom,dsi-select-clocks = "pll_byte_clk0", "pll_dsi_clk0";
+-
+-	meta,settling-time-target-us = <5430>;
+-
+-	qcom,mdss-dsi-display-timings {
+-		timing@0{
+-			qcom,display-topology = <4 4 2>;
+-			qcom,default-topology-index = <0>;
+-			qcom,disable-default-pps;
+-		};
+-	};
+-};
+-
+ &eureka_panel_boe {
+ 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_eureka>;
+ 	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_tokki_a";
