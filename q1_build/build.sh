@@ -167,8 +167,8 @@ log "QEMU-variant kernel saved to $BUILD_DIR/qemu-kernel/Image"
 # which makes amba_device_add() skip its clock-based ID auto-detection
 # entirely.
 log "Patching QEMU's device tree (AMBA PrimeCell ID override)"
-qemu-system-aarch64 -M virt,dumpdtb="$BUILD_DIR/qemu-kernel/virt.dtb" -cpu cortex-a53 \
-  -m 1024 -nographic -smp 1 -kernel "$BUILD_DIR/qemu-kernel/Image" -no-reboot \
+qemu-system-aarch64 -M virt,dumpdtb="$BUILD_DIR/qemu-kernel/virt.dtb" -cpu cortex-a72 \
+  -m 4096 -nographic -smp 8 -kernel "$BUILD_DIR/qemu-kernel/Image" -no-reboot \
   < /dev/null > /dev/null 2>&1 || true
 fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl011@9000000 arm,primecell-periphid 0x00041011
 fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl061@9030000 arm,primecell-periphid 0x00041061
@@ -276,7 +276,7 @@ cat > "$BUILD_DIR/run_qemu.sh" << EOF
 # Login: root (no password). Quit: Ctrl-A then X.
 set -e
 cd "\$(dirname "\$0")"
-exec qemu-system-aarch64 -M virt -cpu cortex-a53 -m 1024 -nographic -smp 1 \\
+exec qemu-system-aarch64 -M virt -cpu cortex-a72 -m 4096 -nographic -smp 8 \\
   -kernel qemu-kernel/Image \\
   -dtb qemu-kernel/virt.dtb \\
   -append "earlycon rootwait root=/dev/vda console=ttyAMA0" \\

@@ -272,7 +272,7 @@ cat > "$BUILD_DIR/run_qemu.sh" << EOF
 # Login: root (no password). Quit: Ctrl-A then X.
 set -e
 cd "\$(dirname "\$0")"
-exec qemu-system-aarch64 -M virt -cpu cortex-a53 -m 1024 -nographic -smp 1 \\
+exec qemu-system-aarch64 -M virt -cpu cortex-a710 -m 8192 -nographic -smp 8 \\
   -kernel qemu-kernel/Image \\
   -append "earlycon rootwait root=/dev/vda console=ttyAMA0" \\
   -netdev user,id=eth0 -device virtio-net-device,netdev=eth0 \\
