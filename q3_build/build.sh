@@ -102,6 +102,8 @@ make ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang \
 OUT_DEVICE="$BUILD_DIR/oculus-quest3-device-kernel"
 mkdir -p "$OUT_DEVICE/dtbs"
 cp arch/arm64/boot/Image "$OUT_DEVICE/Image"
+cp vmlinux "$OUT_DEVICE/vmlinux"
+cp System.map "$OUT_DEVICE/System.map"
 cp .config "$OUT_DEVICE/.config"
 find arch/arm64/boot/dts -iname "*.dtb" -exec cp {} "$OUT_DEVICE/dtbs/" \;
 find arch/arm64/boot/dts -iname "*.dtbo" -exec cp {} "$OUT_DEVICE/dtbs/" \;
@@ -129,6 +131,8 @@ make ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang \
 
 mkdir -p "$BUILD_DIR/qemu-kernel"
 cp arch/arm64/boot/Image "$BUILD_DIR/qemu-kernel/Image"
+cp vmlinux "$BUILD_DIR/qemu-kernel/vmlinux"
+cp System.map "$BUILD_DIR/qemu-kernel/System.map"
 cp .config "$BUILD_DIR/qemu-kernel/.config"
 log "QEMU-variant kernel saved to $BUILD_DIR/qemu-kernel/Image"
 

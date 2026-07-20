@@ -106,6 +106,8 @@ make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_
 OUT_DEVICE="$BUILD_DIR/oculus-quest1-device-kernel"
 mkdir -p "$OUT_DEVICE/dtbs"
 cp arch/arm64/boot/Image "$OUT_DEVICE/Image"
+cp vmlinux "$OUT_DEVICE/vmlinux"
+cp System.map "$OUT_DEVICE/System.map"
 cp .config "$OUT_DEVICE/.config"
 cp arch/arm64/boot/dts/oculus/*.dtb "$OUT_DEVICE/dtbs/"
 log "Real-device kernel saved to $OUT_DEVICE"
@@ -155,6 +157,8 @@ make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_
 
 mkdir -p "$BUILD_DIR/qemu-kernel"
 cp arch/arm64/boot/Image "$BUILD_DIR/qemu-kernel/Image"
+cp vmlinux "$BUILD_DIR/qemu-kernel/vmlinux"
+cp System.map "$BUILD_DIR/qemu-kernel/System.map"
 cp .config "$BUILD_DIR/qemu-kernel/.config"
 log "QEMU-variant kernel saved to $BUILD_DIR/qemu-kernel/Image"
 
