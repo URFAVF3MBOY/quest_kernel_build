@@ -20,6 +20,9 @@ CLANG_DIR="$TOOLCHAIN_DIR/clang-r450784e"
 BUILDROOT_DIR="$WORK_DIR/buildroot"
 BUILD_DIR="$WORK_DIR/build"
 MODE="${1:-all}"
+# Pin to a specific commit instead of tracking branch HEAD. Empty = branch
+# HEAD (whatever oculus-quest2-kernel-master currently points at).
+KERNEL_COMMIT="${KERNEL_COMMIT:-}"
 
 log() { echo -e "\n=== $* ===\n"; }
 
@@ -44,6 +47,16 @@ if [ ! -d "$KERNEL_DIR" ]; then
   git clone --depth 1 --branch oculus-quest2-kernel-master \
     https://github.com/facebookincubator/oculus-linux-kernel.git "$KERNEL_DIR"
 fi
+if [ -n "$KERNEL_COMMIT" ]; then
+  cd "$KERNEL_DIR"
+  if [ "$(git rev-parse HEAD)" != "$KERNEL_COMMIT" ]; then
+    log "Pinning kernel source to $KERNEL_COMMIT"
+    git fetch --depth 1 origin "$KERNEL_COMMIT"
+    git checkout "$KERNEL_COMMIT"
+  fi
+  cd "$WORK_DIR"
+fi
+
 
 # --- 3. Vendor toolchain (AOSP prebuilt Clang r450784e / 14.0.7) -----------
 # Matches this kernel.config's own CONFIG_CC_VERSION_TEXT exactly (same
