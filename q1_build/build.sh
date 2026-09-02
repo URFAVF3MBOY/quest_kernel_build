@@ -21,6 +21,13 @@ ARM_GCC="$TOOLCHAIN_DIR/arm-linux-androideabi-4.9"
 BUILDROOT_DIR="$WORK_DIR/buildroot"
 BUILD_DIR="$WORK_DIR/build"
 MODE="${1:-all}"
+# Pin to a specific commit instead of tracking branch HEAD. Empty = branch
+# HEAD (whatever oculus-quest-kernel-master currently points at). Tested:
+# building from a commit close to a real device's actual build date vs.
+# current HEAD produced identical boot behavior on real Quest 1 hardware
+# (the branch sees very little churn), so pinning isn't necessary by
+# default - available if you ever do need to bisect a regression.
+KERNEL_COMMIT="${KERNEL_COMMIT:-}"
 
 log() { echo -e "\n=== $* ===\n"; }
 
@@ -43,6 +50,15 @@ if [ ! -d "$KERNEL_DIR" ]; then
   log "Cloning oculus-linux-kernel (oculus-quest-kernel-master)"
   git clone --depth 1 --branch oculus-quest-kernel-master \
     https://github.com/facebookincubator/oculus-linux-kernel.git "$KERNEL_DIR"
+fi
+if [ -n "$KERNEL_COMMIT" ]; then
+  cd "$KERNEL_DIR"
+  if [ "$(git rev-parse HEAD)" != "$KERNEL_COMMIT" ]; then
+    log "Pinning kernel source to $KERNEL_COMMIT"
+    git fetch --depth 1 origin "$KERNEL_COMMIT"
+    git checkout "$KERNEL_COMMIT"
+  fi
+  cd "$WORK_DIR"
 fi
 
 # --- 3. Vendor toolchains (AOSP prebuilt GCC 4.9) --------------------------
@@ -77,6 +93,34 @@ export CROSS_COMPILE_ARM32=arm-linux-androideabi-
 # --- 4. Apply source-tree fixes --------------------------------------------
 log "Applying kernel source fixes (oculus-kernel-fixes.patch)"
 cd "$KERNEL_DIR"
+
+# The real /system dm-verity signing cert (verity.x509.pem) is proprietary
+# and was never published upstream - without it, CONFIG_SYSTEM_TRUSTED_KEYS
+# has to be blanked (below), which leaves the kernel's trusted keyring
+# empty. That's not cosmetic: drivers/md/dm-android-verity.c verifies
+# /system's dm-verity signature against that keyring unconditionally (the
+# unlocked-bootloader bypass only covers malformed verity *metadata*, not
+# a failed signature check) - an empty keyring makes /system's verity
+# target creation fail outright and init hangs forever waiting for it to
+# mount, silently, with nothing in pstore to explain why.
+#
+# The certificate is public (Meta's signing public key, not the private
+# key) and recoverable from any real device's own boot partition - see
+# extract_verity_cert.py. If REAL_BOOT_IMG points at a boot_a/boot_b dump
+# and verity.x509.pem doesn't already exist, extract it automatically:
+if [ -n "${REAL_BOOT_IMG:-}" ] && [ ! -f "$WORK_DIR/verity.x509.pem" ]; then
+  log "Extracting the real verity cert from \$REAL_BOOT_IMG"
+  python3 "$WORK_DIR/extract_verity_cert.py" --boot-img "$REAL_BOOT_IMG" \
+    ${REAL_VMLINUX:+--vmlinux "$REAL_VMLINUX"} \
+    -o "$WORK_DIR/verity.x509.pem"
+fi
+
+# certs/Makefile resolves CONFIG_SYSTEM_TRUSTED_KEYS relative to $(srctree)
+# directly (a bare filename means source ROOT, not certs/).
+if [ -f "$WORK_DIR/verity.x509.pem" ]; then
+  cp "$WORK_DIR/verity.x509.pem" verity.x509.pem
+fi
+
 if ! git diff --quiet -- . 2>/dev/null || [ -n "$(git status --short --untracked-files=no)" ]; then
   echo "Tree already has local modifications; skipping patch apply (assuming already applied)."
 else
@@ -98,14 +142,36 @@ EOF
 # --- 5. Build the real Quest 1 device kernel -------------------------------
 log "Building real-device kernel (your kernel.config)"
 cp "$KERNEL_CONFIG" .config
-sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
+# The real verity signing cert is proprietary and was never published -
+# CONFIG_SYSTEM_TRUSTED_KEYS defaults to blanking it out so the tree
+# builds at all. If a real cert has been placed at the kernel source
+# ROOT as verity.x509.pem (certs/Makefile resolves CONFIG_SYSTEM_TRUSTED_KEYS
+# relative to $(srctree), NOT relative to certs/ - a plain filename with
+# no directory prefix means top-level; see extract_verity_cert.py),
+# keep the config pointing at it instead, since an empty trusted keyring
+# makes /system's dm-verity check fail unconditionally (even on an
+# unlocked bootloader) and hangs init.
+if [ -f verity.x509.pem ]; then
+  echo "Using real verity.x509.pem (found at source root) - not blanking CONFIG_SYSTEM_TRUSTED_KEYS"
+else
+  sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
+fi
 make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
 make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
   HOSTCFLAGS="-fcommon" -j"$(nproc)" Image dtbs
+# CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y in the real device's config: the real
+# kernelimage.gz is gzip(Image) with all board-revision DTBs concatenated raw
+# after it (no wrapper table) - Image.gz-dtb is the kbuild target that produces
+# exactly that layout, so build it too for a real flashable-equivalent artifact.
+make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+  HOSTCFLAGS="-fcommon" -j"$(nproc)" Image.gz-dtb
 
 OUT_DEVICE="$BUILD_DIR/oculus-quest1-device-kernel"
 mkdir -p "$OUT_DEVICE/dtbs"
 cp arch/arm64/boot/Image "$OUT_DEVICE/Image"
+if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+  cp arch/arm64/boot/Image.gz-dtb "$OUT_DEVICE/Image.gz-dtb"
+fi
 cp vmlinux "$OUT_DEVICE/vmlinux"
 cp System.map "$OUT_DEVICE/System.map"
 cp .config "$OUT_DEVICE/.config"
