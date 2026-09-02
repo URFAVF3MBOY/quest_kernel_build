@@ -3,3 +3,4 @@ q*_build/build/
 q*_build/oculus-linux-kernel/
 q*_build/buildroot
 q*_build/verity.x509.pem
+q*_build/boot.img

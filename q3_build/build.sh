@@ -6,8 +6,15 @@
 #
 # Usage:
 #   Put your kernel.config next to this script, then:
-#     ./build.sh                 # do everything
-#     ./build.sh device-only     # only build the real-device kernel
+#     ./build.sh                 # default: only build the real-device kernel (+ repack)
+#     ./build.sh device-only     # same as above, explicit
+#     ./build.sh qemu            # only build the QEMU-bootable variant + Buildroot rootfs
+#     ./build.sh all             # build both the device kernel and the QEMU variant
+#
+#   To also repack a stock boot.img with the freshly built kernel, put a
+#   real boot.img pulled from the device next to this script (or point
+#   REAL_BOOT_IMG at it):
+#     REAL_BOOT_IMG=/path/to/boot.img ./build.sh device-only
 #
 set -euo pipefail
 
@@ -19,10 +26,25 @@ TOOLCHAIN_DIR="$WORK_DIR/toolchain"
 CLANG_DIR="$TOOLCHAIN_DIR/clang-r450784e"
 BUILDROOT_DIR="$WORK_DIR/buildroot"
 BUILD_DIR="$WORK_DIR/build"
-MODE="${1:-all}"
+# Default is device-only: most iteration is "change kernel.config / patch,
+# reflash the real headset" and doesn't need a QEMU+Buildroot rootfs rebuilt
+# every time. Ask for "qemu" or "all" explicitly when you need those.
+MODE="${1:-device-only}"
+case "$MODE" in
+  device-only|qemu|all) ;;
+  *)
+    echo "ERROR: unknown mode '$MODE' (expected device-only, qemu, or all)" >&2
+    exit 1
+    ;;
+esac
 # Pin to a specific commit instead of tracking branch HEAD. Empty = branch
 # HEAD (whatever oculus-quest3-kernel-master currently points at).
 KERNEL_COMMIT="${KERNEL_COMMIT:-}"
+# Stock boot.img pulled from a real device (e.g. `adb pull /dev/block/bootdevice/by-name/boot boot.img`).
+# If present, it gets unpacked and repacked with the kernel we just built,
+# using the distro's mkbootimg package (mkbootimg / unpack_bootimg
+# commands), not a hand-cloned copy of the AOSP python sources.
+REAL_BOOT_IMG="${REAL_BOOT_IMG:-$WORK_DIR/boot.img}"
 
 log() { echo -e "\n=== $* ===\n"; }
 
@@ -39,7 +61,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
   git wget cpio unzip rsync kmod device-tree-compiler python3-dev make \
   libncurses-dev qemu-system-arm qemu-efi-aarch64 gcc-12 g++-12 \
-  dwarves expect
+  dwarves expect mkbootimg
 
 # --- 2. Kernel source -----------------------------------------------------
 if [ ! -d "$KERNEL_DIR" ]; then
@@ -96,6 +118,8 @@ else
   git apply "$WORK_DIR/oculus-kernel-fixes.patch"
 fi
 
+if [ "$MODE" = "device-only" ] || [ "$MODE" = "all" ]; then
+
 # --- 5. Build the real Quest 3 device kernel -------------------------------
 log "Building real-device kernel (your kernel.config)"
 cp "$KERNEL_CONFIG" .config
@@ -122,10 +146,63 @@ find arch/arm64/boot/dts -iname "*.dtb" -exec cp {} "$OUT_DEVICE/dtbs/" \;
 find arch/arm64/boot/dts -iname "*.dtbo" -exec cp {} "$OUT_DEVICE/dtbs/" \;
 log "Real-device kernel saved to $OUT_DEVICE"
 
-if [ "$MODE" = "device-only" ]; then
-  log "device-only mode requested, stopping here"
-  exit 0
+cd "$WORK_DIR"
+
+# --- 5b. Repack a real boot.img with the freshly built kernel --------------
+# Uses the distro mkbootimg package (installed in step 1: apt package
+# "mkbootimg", 1:34.0.5-12build1 on Ubuntu 24.04 — provides the
+# `mkbootimg` and `unpack_bootimg` commands directly on PATH, no AOSP
+# source checkout needed) so the header format/version matches whatever
+# actually produced the stock image.
+if [ -f "$REAL_BOOT_IMG" ]; then
+  log "Repacking $REAL_BOOT_IMG with the newly built kernel via mkbootimg"
+
+  command -v mkbootimg >/dev/null 2>&1 || { echo "ERROR: mkbootimg not found on PATH (apt package 'mkbootimg' should have installed it)" >&2; exit 1; }
+  command -v unpack_bootimg >/dev/null 2>&1 || { echo "ERROR: unpack_bootimg not found on PATH (apt package 'mkbootimg' should have installed it)" >&2; exit 1; }
+
+  BOOTIMG_UNPACK_DIR="$BUILD_DIR/bootimg-unpacked"
+  rm -rf "$BOOTIMG_UNPACK_DIR"
+  mkdir -p "$BOOTIMG_UNPACK_DIR"
+
+  # unpack_bootimg --format=mkbootimg dumps every component (kernel,
+  # ramdisk(s), second, recovery_dtbo, dtb, ...) into --out AND, instead of
+  # printing a human summary, prints an already shell-quoted mkbootimg
+  # command line that reproduces this image's exact header (cmdline, base,
+  # offsets, pagesize, os_version/patch_level, header version, etc.) —
+  # including --kernel/--ramdisk/--dtb flags pointing at the files it just
+  # extracted. We capture that verbatim.
+  unpack_bootimg \
+    --boot_img "$REAL_BOOT_IMG" \
+    --out "$BOOTIMG_UNPACK_DIR" \
+    --format=mkbootimg > "$BOOTIMG_UNPACK_DIR/bootimg_args.txt"
+
+  log "Captured original boot.img header args"
+  cat "$BOOTIMG_UNPACK_DIR/bootimg_args.txt"
+
+  NEW_BOOT_IMG="$OUT_DEVICE/boot-repacked.img"
+
+  # argparse keeps the LAST occurrence of a repeated flag, so appending our
+  # own --kernel after the captured args overrides just the kernel image
+  # and leaves every other original header field/component untouched. The
+  # captured args are shell-quoted (the cmdline value in particular), so
+  # this has to go through eval rather than a naive array/word-split.
+  eval mkbootimg \
+    "$(cat "$BOOTIMG_UNPACK_DIR/bootimg_args.txt")" \
+    --kernel "\"$OUT_DEVICE/Image\"" \
+    -o "\"$NEW_BOOT_IMG\""
+
+  log "Repacked boot image saved to $NEW_BOOT_IMG"
+  echo "Flash with: fastboot flash boot $NEW_BOOT_IMG"
+else
+  log "No REAL_BOOT_IMG found at $REAL_BOOT_IMG — skipping boot.img repack"
+  echo "Set REAL_BOOT_IMG=/path/to/stock/boot.img to enable this step."
 fi
+
+cd "$KERNEL_DIR"
+
+fi # device-only || all
+
+if [ "$MODE" = "qemu" ] || [ "$MODE" = "all" ]; then
 
 # --- 6. Build the QEMU-bootable variant ------------------------------------
 log "Building QEMU-bootable kernel variant"
@@ -269,8 +346,17 @@ exec qemu-system-aarch64 -M virt -cpu cortex-a710 -m 8192 -nographic -smp 6 \\
 EOF
 chmod +x "$BUILD_DIR/run_qemu.sh"
 
+fi # qemu || all
+
 log "Done."
-echo "Real Quest 3 kernel:  $OUT_DEVICE/"
-echo "QEMU-variant kernel:  $BUILD_DIR/qemu-kernel/Image"
-echo "Buildroot rootfs:     $BUILDROOT_DIR/output/images/rootfs.ext4"
-echo "Run under QEMU:       $BUILD_DIR/run_qemu.sh"
+if [ "$MODE" = "device-only" ] || [ "$MODE" = "all" ]; then
+  echo "Real Quest 3 kernel:  $BUILD_DIR/oculus-quest3-device-kernel/"
+  if [ -f "$REAL_BOOT_IMG" ]; then
+    echo "Repacked boot.img:    $BUILD_DIR/oculus-quest3-device-kernel/boot-repacked.img"
+  fi
+fi
+if [ "$MODE" = "qemu" ] || [ "$MODE" = "all" ]; then
+  echo "QEMU-variant kernel:  $BUILD_DIR/qemu-kernel/Image"
+  echo "Buildroot rootfs:     $BUILDROOT_DIR/output/images/rootfs.ext4"
+  echo "Run under QEMU:       $BUILD_DIR/run_qemu.sh"
+fi
