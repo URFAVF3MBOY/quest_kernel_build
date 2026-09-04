@@ -77,6 +77,41 @@ REAL_BOOT_IMG="${REAL_BOOT_IMG:-$WORK_DIR/boot.img}"
 # and boots. Set VERITY_BYPASS=0 to keep the stock cmdline verbatim.
 VERITY_BYPASS="${VERITY_BYPASS:-1}"
 
+# Opt-in: build the device kernel with kgdb reachable over a USB gadget
+# serial port (see kgdb/README.md). Off by default - a kernel debugger on
+# the USB cable is a large debug-only attack surface, and the transport is
+# inert until armed at runtime anyway.
+# KGDB_USB is accepted as an alias. Careful: if KGDB_USB is exported in
+# your shell this silently turns on, which once invalidated a "baseline"
+# control build on the Quest 3 side.
+KGDB="${KGDB:-${KGDB_USB:-0}}"
+
+# KGDB=1 only: disable the watchdogs, so the CPUs can stay stopped.
+#
+# There are TWO on this device and both have to go - disabling only the
+# first still resets the headset, which is exactly how this was found:
+#
+#  1. watchdog_v2.enable=0 - the SoC watchdog. watchdog_v2.c documents its
+#     own interface ("specify watchdog_v2.enable=1 to enable the watchdog").
+#  2. softdog.soft_noboot=1 - the SOFTWARE watchdog. CONFIG_SOFT_WATCHDOG=y
+#     and Android's watchdogd opens /dev/watchdog at boot with a 30s margin
+#     ("watchdogd started (interval 1, margin 30)"), and nothing pets it
+#     while kgdb has the machine stopped. The stock cmdline carries
+#     softdog.soft_panic=1, so it panics the kernel:
+#         softdog: Initiating panic
+#         Kernel panic - not syncing: Software Watchdog Timer expired
+#     Measured on a 60s halt: died ~69s after entering kgdb, and pstore had
+#     the whole story. soft_noboot=1 changes the ACTION to a warning
+#     (drivers/watchdog/softdog.c), which is robust; raising soft_margin is
+#     not, because watchdogd overrides the timeout via ioctl at runtime.
+#     CONFIG_WATCHDOG_NOWAYOUT=y, so stopping watchdogd would not disarm it
+#     either.
+#
+# Off by default because a watchdog-disabled kernel cannot self-recover from
+# a wedge - it needs a physical power cycle. Leave it off while iterating;
+# turn it on for long inspection sessions.
+KGDB_DISABLE_WDT="${KGDB_DISABLE_WDT:-0}"
+
 # Kernel cmdline to bake into the repacked boot.img. Unset (the default)
 # means "take the stock image's own cmdline and apply the VERITY_BYPASS
 # edit to it" - the stock cmdline carries board-specific parameters
@@ -170,6 +205,15 @@ EOF
 # Note: the patch already removed "obj-y += internal/" from
 # drivers/staging/oculus/Makefile, so no Makefile stub is needed here.
 
+# KGDB=1: register a private struct kgdb_io driving the USB gadget's bulk
+# endpoints. Separate from oculus-kernel-fixes.patch because it is
+# opt-in and self-checking (anchor-verified and idempotent), so it can be
+# re-run over an already-patched tree without a --check dance.
+if [ "$KGDB" = "1" ]; then
+  log "Applying kgdb-over-USB transport patch"
+  python3 "$WORK_DIR/kgdb/apply-kgdb-usb-transport.py"
+fi
+
 # --- 5. Build the real Quest 1 device kernel -------------------------------
 log "Building real-device kernel (your kernel.config)"
 cp "$KERNEL_CONFIG" .config
@@ -179,6 +223,30 @@ cp "$KERNEL_CONFIG" .config
 # CONFIG_MODULE_SIG is off, and /system's verity check is bypassed on the
 # cmdline instead (see VERITY_BYPASS at the top of this file).
 sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
+if [ "$KGDB" = "1" ]; then
+  # The whole config delta for kgdb. Written before olddefconfig, which
+  # keeps values already present in .config and only fills in what is
+  # missing - so the explicit "is not set" lines below survive it.
+  #
+  # KGDB_SERIAL_CONSOLE is "default y" in lib/Kconfig.kgdb and must be
+  # turned off explicitly. It builds kgdboc, which cannot drive a gadget
+  # serial port anyway (u_serial implements no poll_get_char/poll_put_char),
+  # and it selects CONSOLE_POLL, which adds members to struct tty_operations
+  # and struct uart_ops. That is harmless on this headset - Quest 1 loads no
+  # modules - but it broke boot outright on Quest 3, and we do not need it.
+  #
+  # USB_CONFIGFS_ACM selects USB_U_SERIAL and USB_F_ACM, neither of which is
+  # in the stock config: the transport lives in u_serial.c, and the ACM
+  # function is what gives the host a /dev/ttyACM* to point gdb at.
+  log "KGDB=1: adding kgdb config fragment"
+  cat >> .config << 'KGDBCFG'
+CONFIG_KGDB=y
+# CONFIG_KGDB_SERIAL_CONSOLE is not set
+# CONFIG_KGDB_KDB is not set
+# CONFIG_KGDB_TESTS is not set
+CONFIG_USB_CONFIGFS_ACM=y
+KGDBCFG
+fi
 make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
 make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
   HOSTCFLAGS="-fcommon" -j"$(nproc)" Image dtbs
@@ -255,6 +323,18 @@ PYBOOTIMG
     else
       REPACK_CMDLINE="$STOCK_CMDLINE"
       log "VERITY_BYPASS=0 - keeping the stock cmdline verbatim"
+    fi
+    if [ "$KGDB" = "1" ]; then
+      # CONFIG_RANDOMIZE_BASE=y here, so without nokaslr gdb resolves
+      # nothing - every frame is "?? ()" and data symbols cannot be read,
+      # which makes the debugger close to useless. The boot.img cmdline IS
+      # honoured on this device (verified: buildvariant=eng showed up in
+      # /proc/cmdline).
+      REPACK_CMDLINE="$REPACK_CMDLINE nokaslr"
+      if [ "$KGDB_DISABLE_WDT" = "1" ]; then
+        REPACK_CMDLINE="$REPACK_CMDLINE watchdog_v2.enable=0 softdog.soft_noboot=1"
+        log "KGDB_DISABLE_WDT=1 - both watchdogs off (no self-recovery from a wedge)"
+      fi
     fi
   else
     REPACK_CMDLINE="$KERNEL_CMDLINE"
