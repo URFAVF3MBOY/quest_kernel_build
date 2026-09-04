@@ -84,13 +84,54 @@ confirming it's meant to be provided externally). Two fixes:
 — `build.sh` recreates the Kconfig stub directly, and the Makefile
 line removal *is* captured in the patch since it touches a tracked file.)
 
-### 4. `verity.x509.pem` — proprietary signing cert
+### 4. `verity.x509.pem` — proprietary signing cert, and how to boot without it
 
 `CONFIG_SYSTEM_TRUSTED_KEYS="verity.x509.pem"` points at Oculus's
-private dm-verity signing key, which obviously isn't public. Cleared to
-`CONFIG_SYSTEM_TRUSTED_KEYS=""` in the `.config` (not a source patch —
-apply this to your `kernel.config` before building, `build.sh` does it
-automatically).
+dm-verity signing certificate, which isn't in the public tree — the
+build can't even link with it set, so `build.sh` clears it to
+`CONFIG_SYSTEM_TRUSTED_KEYS=""` in the `.config` (not a source patch;
+apply the same to your own `kernel.config` if you build by hand).
+
+That leaves the kernel's built-in trusted keyring empty, and on a `user`
+build that is *not* cosmetic. `drivers/md/dm-android-verity.c` verifies
+/system's verity metadata signature against exactly that keyring on
+every boot, so the check fails, `android_verity_ctr()` bails, /system
+never mounts, and init hangs forever — silently, with nothing in pstore
+to explain it. The unlocked-bootloader escape hatch does not help here:
+`is_unlocked()` is only consulted when the metadata is *malformed*, not
+when its signature fails to verify.
+
+The fix is a one-word kernel cmdline change, not a certificate hunt.
+`android_verity_ctr()` short-circuits long before it reads metadata or
+touches the keyring:
+
+```c
+if (is_eng())
+        return create_linear_device(ti, dev, target_device);
+```
+
+so booting with **`buildvariant=eng`** on the cmdline (instead of the
+stock `buildvariant=user`) maps /system as a plain linear device, which
+is what an eng build does anyway. `buildvariant=` is parsed by
+`dm-android-verity.c` and by nothing else in the tree, so this touches
+no other subsystem and needs no source patch.
+
+`build.sh` does this for you in step 5b when it repacks a stock
+`boot.img`: it reads the stock cmdline out of that image and rewrites
+`buildvariant=user` to `buildvariant=eng`, leaving every other
+board-specific parameter (`androidboot.hardware`, `bootver`,
+`cursysver`, `minsysver`, `veritykeyid`, …) alone. Set `VERITY_BYPASS=0`
+to keep the stock cmdline verbatim.
+
+The trade-off, stated plainly: /system is then mounted without integrity
+checking. That is inherent to running a kernel Meta did not sign — there
+is no configuration in which a self-built kernel both verifies /system
+and boots. (An earlier revision of this repo extracted the real
+certificate out of a device's own boot signature block and compiled it
+in. That does work, but it drags a proprietary blob into the build for
+no gain: the same kernel still can't sign anything, so it only moves
+where the trust comes from, and it silently breaks the moment the device
+takes a firmware update with a different key.)
 
 ### 5. Local headers included with `<angle brackets>`, no `-I$(src)`
 
