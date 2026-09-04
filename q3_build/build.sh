@@ -16,6 +16,15 @@
 #   REAL_BOOT_IMG at it):
 #     REAL_BOOT_IMG=/path/to/boot.img ./build.sh device-only
 #
+#   To build the real-device kernel with kgdb reachable over USB (a gadget
+#   serial function; no UART hardware needed):
+#     KGDB=1 ./build.sh device-only
+#
+#   Everything kgdb lives in kgdb/ and is used from there - see
+#   kgdb/README.md. Nothing kgdb-related is written into the build output.
+#   KGDB=1 defaults the cmdline to "nokaslr" (needed for gdb symbols);
+#   set KERNEL_CMDLINE explicitly to override, or to "" to suppress it.
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +35,9 @@ TOOLCHAIN_DIR="$WORK_DIR/toolchain"
 CLANG_DIR="$TOOLCHAIN_DIR/clang-r450784e"
 BUILDROOT_DIR="$WORK_DIR/buildroot"
 BUILD_DIR="$WORK_DIR/build"
+# Everything kgdb-specific (kernel patch, on-device helpers, KABI checker)
+# lives here; nothing outside it is needed for a non-KGDB build.
+KGDB_DIR="$WORK_DIR/kgdb"
 # Default is device-only: most iteration is "change kernel.config / patch,
 # reflash the real headset" and doesn't need a QEMU+Buildroot rootfs rebuilt
 # every time. Ask for "qemu" or "all" explicitly when you need those.
@@ -39,12 +51,47 @@ case "$MODE" in
 esac
 # Pin to a specific commit instead of tracking branch HEAD. Empty = branch
 # HEAD (whatever oculus-quest3-kernel-master currently points at).
+#
+# Worth pinning per-invocation when it matters: the kernel has to stay
+# ABI-compatible with the ~270 prebuilt vendor modules on the device (see
+# kgdb/check-vendor-kabi.py), and a moving branch HEAD can silently drift
+# into CRC mismatches that make the device fall back to the stock kernel
+# with no error. E.g.:
+#   KERNEL_COMMIT=bbb8e0cff7f048bdf011ab3e7fd686886879d80f KGDB=1 ./build.sh
 KERNEL_COMMIT="${KERNEL_COMMIT:-}"
 # Stock boot.img pulled from a real device (e.g. `adb pull /dev/block/bootdevice/by-name/boot boot.img`).
 # If present, it gets unpacked and repacked with the kernel we just built,
 # using the distro's mkbootimg package (mkbootimg / unpack_bootimg
 # commands), not a hand-cloned copy of the AOSP python sources.
 REAL_BOOT_IMG="${REAL_BOOT_IMG:-$WORK_DIR/boot.img}"
+# Opt-in: build the device kernel with kgdb reachable over a USB gadget
+# serial function (see step 5, and kgdb/README.md). Off
+# by default: a kernel debugger reachable over the USB cable is a large
+# debug-only attack surface.
+# KGDB_USB is accepted as an alias for KGDB. Careful: if KGDB_USB is
+# exported in your shell it silently turns this on - that happened during
+# development and quietly invalidated a "baseline" control build.
+KGDB="${KGDB:-${KGDB_USB:-0}}"
+# Kernel cmdline to bake into the repacked boot.img. The stock Quest 3
+# boot.img ships an EMPTY cmdline (confirmed via unpack_bootimg), so
+# anything we need has to be added here. Empty (the default) = leave the
+# stock empty cmdline untouched.
+# When KGDB=1 and KERNEL_CMDLINE was never set, default it to "nokaslr".
+# CONFIG_RANDOMIZE_BASE=y here, so without it gdb resolves nothing - every
+# frame is "?? ()" and data symbols cannot be read at all, which makes the
+# debugger close to useless. The boot.img cmdline IS honoured on this
+# device (verified: nokaslr shows up in /proc/cmdline).
+#
+# Tested for UNSET, not empty, so an explicit KERNEL_CMDLINE="" still means
+# "leave the stock empty cmdline alone" and any explicit value wins.
+# The transport itself needs no cmdline: it is armed at runtime by writing
+# the ttyGS index to /sys/module/u_serial/parameters/kgdb_port, so a KGDB=1
+# kernel still boots like a stock one until you ask for the debugger.
+if [ -z "${KERNEL_CMDLINE+set}" ] && [ "$KGDB" = "1" ]; then
+  KERNEL_CMDLINE="nokaslr"
+else
+  KERNEL_CMDLINE="${KERNEL_CMDLINE-}"
+fi
 
 log() { echo -e "\n=== $* ===\n"; }
 
@@ -133,6 +180,73 @@ make ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang old
 ./scripts/config --file .config -d LTO_CLANG_FULL -e LTO_CLANG_THIN
 make ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang olddefconfig
 
+if [ "$KGDB" = "1" ]; then
+  log "Enabling KGDB with a USB-gadget-serial transport"
+  # MEASURED ON THIS DEVICE - the two facts that drive everything here:
+  #
+  #   CONFIG_KGDB=y                                  -> boots fine
+  #   CONFIG_KGDB=y + CONFIG_KGDB_SERIAL_CONSOLE=y   -> does NOT boot
+  #
+  # (Verified by building both and fastboot-booting them; the failing one
+  # silently falls back to the stock kernel, i.e. uname loses -DARK. Also
+  # independently confirmed by the device owner. Ruled out along the way:
+  # the geni earlycon, binding the debug-UART DT node, and kernel
+  # size/load layout - a known-good kernel padded to the failing kernel's
+  # exact size and image_size still booted.)
+  #
+  # KGDB_SERIAL_CONSOLE is what builds drivers/tty/serial/kgdboc.c and
+  # what selects CONSOLE_POLL. We do not need either, because kgdboc is
+  # only ONE implementation of struct kgdb_io:
+  #
+  #   * kgdb_register_io_module() is exported and available with plain
+  #     CONFIG_KGDB=y. It needs a read_char/write_char pair - no tty, no
+  #     CONSOLE_POLL.
+  #   * sysrq-g is registered by debug_core itself
+  #     (register_sysrq_key('g', &sysrq_dbg_op) in kernel/debug/debug_core.c),
+  #     gated only on CONFIG_MAGIC_SYSRQ, which is already =y.
+  #
+  # And kgdboc could never have worked over USB anyway: it only accepts a
+  # tty whose ops provide poll_get_char/poll_put_char, and u_serial.c
+  # implements neither (nothing under drivers/usb/gadget/ does).
+  #
+  # So: KGDB=y, KGDB_SERIAL_CONSOLE=n, plus our own kgdb_io module that
+  # drives the gadget's bulk endpoints directly. See
+  # apply-kgdb-usb-transport.py for the transport itself.
+  #
+  # KGDB_KDB is left OFF: it is optional (gdb is the goal, and kdb is just
+  # an alternative frontend on the same kgdb_io), and it has not been
+  # boot-tested on this device. Turn it on only as its own experiment.
+  #
+  # Everything else the transport needs - USB_U_SERIAL, USB_F_SERIAL,
+  # USB_F_ACM, USB_DWC3, MAGIC_SYSRQ, DEBUG_KERNEL - is already =y in the
+  # stock kernel.config, so the whole config delta is one symbol.
+  ./scripts/config --file .config \
+    -e KGDB \
+    -d KGDB_SERIAL_CONSOLE \
+    -d KGDB_KDB \
+    -e MAGIC_SYSRQ \
+    -e DEBUG_INFO
+  make ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang olddefconfig
+
+  # KGDB_SERIAL_CONSOLE is "default y", so it comes back on its own every
+  # time olddefconfig runs unless it is explicitly disabled above. Fail
+  # loudly rather than shipping a kernel that silently will not boot.
+  if ! grep -q "^CONFIG_KGDB=y" .config; then
+    echo "ERROR: CONFIG_KGDB did not resolve to y (needs DEBUG_KERNEL + HAVE_ARCH_KGDB)." >&2
+    exit 1
+  fi
+  for sym in KGDB_SERIAL_CONSOLE CONSOLE_POLL; do
+    if grep -q "^CONFIG_$sym=y" .config; then
+      echo "ERROR: CONFIG_$sym is enabled; this kernel will not boot on this device." >&2
+      echo "It is 'default y' under KGDB - it must be explicitly disabled." >&2
+      exit 1
+    fi
+  done
+
+  log "Applying the KGDB-over-USB transport patch"
+  python3 "$KGDB_DIR/apply-kgdb-usb-transport.py"
+fi
+
 make ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang \
   -j"$(nproc)" Image dtbs
 
@@ -145,6 +259,19 @@ cp .config "$OUT_DEVICE/.config"
 find arch/arm64/boot/dts -iname "*.dtb" -exec cp {} "$OUT_DEVICE/dtbs/" \;
 find arch/arm64/boot/dts -iname "*.dtbo" -exec cp {} "$OUT_DEVICE/dtbs/" \;
 log "Real-device kernel saved to $OUT_DEVICE"
+
+if [ "$KGDB" = "1" ]; then
+  # Nothing kgdb-related is copied into the build output on purpose: the
+  # helpers are self-contained in kgdb/ and are pushed to the device
+  # straight from there by kgdb/arm.sh. Keeping one copy avoids the build
+  # output and kgdb/ drifting apart.
+  log "KGDB transport built in"
+  echo "Next:"
+  echo "  $KGDB_DIR/check-vendor-kabi.py            # must PASS before booting"
+  echo "  fastboot boot $OUT_DEVICE/boot-repacked.img"
+  echo "  $KGDB_DIR/arm.sh                          # compose gadget + arm kgdb"
+  echo "See $KGDB_DIR/README.md"
+fi
 
 cd "$WORK_DIR"
 
@@ -176,23 +303,54 @@ if [ -f "$REAL_BOOT_IMG" ]; then
     --out "$BOOTIMG_UNPACK_DIR" \
     --format=mkbootimg > "$BOOTIMG_UNPACK_DIR/bootimg_args.txt"
 
-  log "Captured original boot.img header args"
+  log "Captured boot.img header args (repack command line)"
   cat "$BOOTIMG_UNPACK_DIR/bootimg_args.txt"
 
   NEW_BOOT_IMG="$OUT_DEVICE/boot-repacked.img"
 
+  # The captured args are shell-quoted (the cmdline value in particular),
+  # so this has to go through eval rather than a naive array/word-split.
   # argparse keeps the LAST occurrence of a repeated flag, so appending our
-  # own --kernel after the captured args overrides just the kernel image
-  # and leaves every other original header field/component untouched. The
-  # captured args are shell-quoted (the cmdline value in particular), so
-  # this has to go through eval rather than a naive array/word-split.
+  # own --kernel (and optionally --cmdline) after the captured args
+  # overrides just those and leaves every other original header
+  # field/component untouched.
+  # KGDB=1: append a modules.options segment disabling the SoC watchdog.
+  # Nothing pets qcom_wdt_core while kgdb has the CPUs stopped, so without
+  # this a halt longer than ~10-30s resets the headset. The param is 0444,
+  # i.e. load-time only, but first-stage init uses Android's libmodprobe
+  # which honours /lib/modules/modules.options. The ramdisk is concatenated
+  # compressed cpio archives, so appending one preserves the originals.
+  #
+  # Off by default (KGDB_DISABLE_WDT=0) because a watchdog-disabled kernel
+  # cannot self-recover from a wedge - it needs a physical power cycle.
+  # Leave it off while iterating; turn it on for long inspection sessions.
+  REPACK_RAMDISK=""
+  if [ "$KGDB" = "1" ] && [ "${KGDB_DISABLE_WDT:-0}" = "1" ]; then
+    log "Appending modules.options (qcom_wdt_core.disable_wdt=1)"
+    WDT_TMP="$BUILD_DIR/wdt-extra"
+    rm -rf "$WDT_TMP"; mkdir -p "$WDT_TMP/lib/modules"
+    printf 'options qcom_wdt_core disable_wdt=1\n' > "$WDT_TMP/lib/modules/modules.options"
+    ( cd "$WDT_TMP" && find . | cpio -o -H newc --quiet | lz4 -l -9 -q > "$BUILD_DIR/wdt-extra.lz4" )
+    cat "$BOOTIMG_UNPACK_DIR/ramdisk" "$BUILD_DIR/wdt-extra.lz4" > "$BUILD_DIR/ramdisk-nowdt"
+    REPACK_RAMDISK="--ramdisk \"$BUILD_DIR/ramdisk-nowdt\""
+  fi
+
+  BOOTIMG_CMDLINE_ARG=""
+  if [ -n "$KERNEL_CMDLINE" ]; then
+    log "Overriding kernel cmdline: $KERNEL_CMDLINE"
+    BOOTIMG_CMDLINE_ARG="--cmdline \"$KERNEL_CMDLINE\""
+  fi
+
   eval mkbootimg \
     "$(cat "$BOOTIMG_UNPACK_DIR/bootimg_args.txt")" \
     --kernel "\"$OUT_DEVICE/Image\"" \
+    $REPACK_RAMDISK \
+    $BOOTIMG_CMDLINE_ARG \
     -o "\"$NEW_BOOT_IMG\""
 
   log "Repacked boot image saved to $NEW_BOOT_IMG"
-  echo "Flash with: fastboot flash boot $NEW_BOOT_IMG"
+  echo "Boot it (non-destructive, does NOT touch the boot partition):"
+  echo "  fastboot boot $NEW_BOOT_IMG"
 else
   log "No REAL_BOOT_IMG found at $REAL_BOOT_IMG — skipping boot.img repack"
   echo "Set REAL_BOOT_IMG=/path/to/stock/boot.img to enable this step."
@@ -353,6 +511,9 @@ if [ "$MODE" = "device-only" ] || [ "$MODE" = "all" ]; then
   echo "Real Quest 3 kernel:  $BUILD_DIR/oculus-quest3-device-kernel/"
   if [ -f "$REAL_BOOT_IMG" ]; then
     echo "Repacked boot.img:    $BUILD_DIR/oculus-quest3-device-kernel/boot-repacked.img"
+  fi
+  if [ "$KGDB" = "1" ]; then
+    echo "KGDB helpers + docs:  $KGDB_DIR/  (README.md, arm.sh)"
   fi
 fi
 if [ "$MODE" = "qemu" ] || [ "$MODE" = "all" ]; then
