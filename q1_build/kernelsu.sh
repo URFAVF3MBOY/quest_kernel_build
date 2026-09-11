@@ -259,71 +259,20 @@ KGDBCFG
 fi
 
 # ---------------------------------------------------------------------------
-# Optional KernelSU configuration
+# Optional KernelSU-Next configuration
 # ---------------------------------------------------------------------------
 
 if [ "$KSU" = "1" ]; then
 
     echo
-    echo "=== Building WITH KernelSU ==="
+    echo "=== Building WITH KernelSU-Next ==="
     echo
 
-    if [ ! -L drivers/kernelsu ]; then
-        echo "ERROR: drivers/kernelsu symlink does not exist."
-        echo "Run ./setup.sh before running this build script."
-        exit 1
-    fi
-
-    if [ ! -d drivers/kernelsu ]; then
-        echo "ERROR: drivers/kernelsu exists but points to an invalid directory."
-        exit 1
-    fi
-
-    if [ ! -f drivers/kernelsu/Kconfig ]; then
-        echo "ERROR: drivers/kernelsu/Kconfig was not found."
-        exit 1
-    fi
-
-    if [ ! -f drivers/kernelsu/Makefile ]; then
-        echo "ERROR: drivers/kernelsu/Makefile was not found."
-        exit 1
-    fi
-
-    echo "KernelSU directory:"
-    ls -ld drivers/kernelsu
-
-    echo
-    echo "Checking drivers/Makefile:"
-    grep -n 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || {
-        echo "ERROR: KernelSU is not included in drivers/Makefile."
-        exit 1
-    }
-
-    echo
-    echo "Checking drivers/Kconfig:"
-    grep -n 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig || {
-        echo "ERROR: KernelSU is not included in drivers/Kconfig."
-        exit 1
-    }
-
-    echo
-    echo "Enabling KernelSU and OverlayFS..."
+    echo "Enabling KernelSU..."
 
     cat >> .config << 'EOF'
 
-CONFIG_OVERLAY_FS=y
 CONFIG_KSU=y
-EOF
-
-else
-
-    echo
-    echo "=== Building WITHOUT KernelSU ==="
-    echo
-
-    cat >> .config << 'EOF'
-
-# CONFIG_KSU is not set
 EOF
 
 fi
