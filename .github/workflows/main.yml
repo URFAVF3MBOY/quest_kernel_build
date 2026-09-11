@@ -1,0 +1,38 @@
+name: Quest 1 Kernel Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v4
+
+      - name: Run Quest 1 build
+        working-directory: q1_build
+        env:
+          # Keep the real Quest kernel's verity workaround.
+          VERITY_BYPASS: "1"
+
+          # Device kernel only — don't waste time building QEMU/Buildroot.
+          KERNEL_COMMIT: ""
+
+        run: |
+          chmod +x build.sh
+          ./build.sh device-only
+
+      - name: Upload Quest 1 kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest1-kernel
+          path: |
+            q1_build/build/oculus-quest1-device-kernel/Image
+            q1_build/build/oculus-quest1-device-kernel/Image.gz-dtb
+            q1_build/build/oculus-quest1-device-kernel/vmlinux
+            q1_build/build/oculus-quest1-device-kernel/System.map
+            q1_build/build/oculus-quest1-device-kernel/.config
+            q1_build/build/oculus-quest1-device-kernel/boot-repacked.img
+          if-no-files-found: error
