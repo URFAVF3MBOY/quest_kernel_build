@@ -273,7 +273,7 @@ if [ "$KSU" = "1" ]; then
     cat >> .config << 'EOF'
 
 CONFIG_KSU=y
-CONFIG_NOMOUNT=y
+CONFIG_OVERLAY_FS=y
 EOF
 
 fi
