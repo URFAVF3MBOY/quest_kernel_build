@@ -273,6 +273,7 @@ if [ "$KSU" = "1" ]; then
     cat >> .config << 'EOF'
 
 CONFIG_KSU=y
+CONFIG_NOMOUNT=y
 EOF
 
 fi
