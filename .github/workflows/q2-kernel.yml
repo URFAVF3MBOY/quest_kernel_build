@@ -1,1 +1,40 @@
+```yaml
+name: Quest 2 Kernel Build
 
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v4
+
+      - name: Run Quest 2 build
+        working-directory: q2_build
+        env:
+          # Build the exact Quest 2 kernel revision requested.
+          KERNEL_COMMIT: "5a02b7f302c9c1a3d979283576d3caa7724306a2"
+
+          # Keep the real Quest kernel's verity workaround.
+          VERITY_BYPASS: "1"
+
+        run: |
+          chmod +x build.sh
+          ./build.sh device-only
+
+      - name: Upload Quest 2 kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest2-kernel-5a02b7f
+          path: |
+            q2_build/build/oculus-quest2-device-kernel/Image
+            q2_build/build/oculus-quest2-device-kernel/Image.gz-dtb
+            q2_build/build/oculus-quest2-device-kernel/vmlinux
+            q2_build/build/oculus-quest2-device-kernel/System.map
+            q2_build/build/oculus-quest2-device-kernel/.config
+            q2_build/build/oculus-quest2-device-kernel/boot-repacked.img
+          if-no-files-found: error
+```
