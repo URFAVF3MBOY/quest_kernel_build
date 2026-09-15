@@ -88,7 +88,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   build-essential bc bison flex libssl-dev libelf-dev \
   gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
   git wget cpio unzip rsync kmod device-tree-compiler python3-dev make \
-  libncurses-dev gcc-12 g++-12 dwarves expect mkbootimg
+  libncurses-dev gcc-12 g++-12 dwarves expect
 
 # --- 2. Kernel source -----------------------------------------------------
 if [ ! -d "$KERNEL_DIR/.git" ]; then
@@ -141,6 +141,18 @@ if [ ! -x "$CLANG_DIR/bin/clang" ]; then
   rm -f "$TOOLCHAIN_DIR/clang-r450784e.tar.gz"
 fi
 
+# --- 3b. mkbootimg/unpack_bootimg scripts (AOSP source, not the apt package) --
+# Ubuntu 22.04's "mkbootimg" apt package is an old revision that predates
+# unpack_bootimg's --format=mkbootimg flag - it errors with "unrecognized
+# arguments: --format=mkbootimg". Pull the current scripts from AOSP directly
+# instead of depending on whatever the distro happens to ship.
+MKBOOTIMG_DIR="$TOOLCHAIN_DIR/mkbootimg-src"
+if [ ! -d "$MKBOOTIMG_DIR/.git" ]; then
+  log "Fetching mkbootimg/unpack_bootimg scripts from AOSP"
+  rm -rf "$MKBOOTIMG_DIR"
+  git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg "$MKBOOTIMG_DIR"
+fi
+
 export PATH="$CLANG_DIR/bin:$PATH"
 export ARCH=arm64
 export LLVM=1
@@ -190,14 +202,13 @@ log "Real-device kernel saved to $OUT_DEVICE"
 # --- 5b. Repack a real boot.img around the kernel just built ---------------
 # A bare Image/Image.gz-dtb is not bootable on its own: the device needs the
 # stock ramdisk and the stock header (load offsets, page size, os_version)
-# alongside it. Uses the distro `mkbootimg` package (apt "mkbootimg",
-# installed in step 1 - it puts `mkbootimg` and `unpack_bootimg` straight
-# on PATH), so the header format matches whatever produced the stock image.
+# alongside it. Uses the AOSP mkbootimg/unpack_bootimg scripts fetched in
+# step 3b, so the header format matches whatever produced the stock image.
 if [ -f "$REAL_BOOT_IMG" ]; then
   log "Repacking $REAL_BOOT_IMG with the newly built kernel via mkbootimg"
 
-  command -v mkbootimg >/dev/null 2>&1 || { echo "ERROR: mkbootimg not found on PATH (apt package 'mkbootimg' should have installed it)" >&2; exit 1; }
-  command -v unpack_bootimg >/dev/null 2>&1 || { echo "ERROR: unpack_bootimg not found on PATH (apt package 'mkbootimg' should have installed it)" >&2; exit 1; }
+  [ -f "$MKBOOTIMG_DIR/mkbootimg.py" ] || { echo "ERROR: mkbootimg.py not found at $MKBOOTIMG_DIR" >&2; exit 1; }
+  [ -f "$MKBOOTIMG_DIR/unpack_bootimg.py" ] || { echo "ERROR: unpack_bootimg.py not found at $MKBOOTIMG_DIR" >&2; exit 1; }
 
   BOOTIMG_UNPACK_DIR="$BUILD_DIR/bootimg-unpacked"
   rm -rf "$BOOTIMG_UNPACK_DIR"
@@ -209,7 +220,7 @@ if [ -f "$REAL_BOOT_IMG" ]; then
   # os_version/os_patch_level, header version - with --kernel/--ramdisk
   # pointing at what it just extracted. Capture that verbatim so nothing
   # has to be hand-transcribed.
-  unpack_bootimg \
+  python3 "$MKBOOTIMG_DIR/unpack_bootimg.py" \
     --boot_img "$REAL_BOOT_IMG" \
     --out "$BOOTIMG_UNPACK_DIR" \
     --format=mkbootimg > "$BOOTIMG_UNPACK_DIR/bootimg_args.txt"
@@ -264,7 +275,7 @@ PYBOOTIMG
   # keeps the LAST occurrence of a repeated flag, so appending our own
   # --kernel/--cmdline after the captured args overrides exactly those two
   # and leaves every other header field and component untouched.
-  eval mkbootimg \
+  eval python3 "\"$MKBOOTIMG_DIR/mkbootimg.py\"" \
     "$(cat "$BOOTIMG_UNPACK_DIR/bootimg_args.txt")" \
     --kernel "\"$REPACK_KERNEL\"" \
     --cmdline "\"$REPACK_CMDLINE\"" \
