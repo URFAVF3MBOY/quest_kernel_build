@@ -68,8 +68,9 @@ diff --git a/drivers/staging/oculus/Kconfig b/drivers/staging/oculus/Kconfig
 --- a/drivers/staging/oculus/Kconfig
 +++ b/drivers/staging/oculus/Kconfig
 @@ -285,7 +285,6 @@ config VENDOR_DT_OUTPUT_DISABLE
- 	bool
- 	default n
+           device-trees to be built by default. Don't build them when
+           VENDOR_DT_OUTPUT_DISABLE is set since we don't need any of these on Meta
+           platforms.
  
 -source "drivers/staging/oculus/internal/Kconfig"
  source "drivers/staging/oculus/mcu/Kconfig"
