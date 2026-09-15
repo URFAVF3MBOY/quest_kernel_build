@@ -72,6 +72,12 @@ else
   git checkout --detach origin/oculus-quest2-kernel-master
 fi
 
+sed -i '/source "drivers\/staging\/oculus\/internal\/Kconfig"/d' \
+    "$KERNEL_DIR/drivers/staging/oculus/Kconfig"
+
+sed -i '/obj-y[[:space:]]*+=[[:space:]]*internal\//d' \
+    "$KERNEL_DIR/drivers/staging/oculus/Makefile"
+
 cd "$WORK_DIR"
 
 # --- 3. Vendor toolchain (AOSP prebuilt Clang r450784e / 14.0.7) -----------
