@@ -103,11 +103,8 @@ export ARCH=arm64
 export LLVM=1
 export LLVM_IAS=1
 export CROSS_COMPILE=aarch64-linux-gnu-
-# This tree's top-level Makefile does `CC := $(REAL_CC)` unconditionally
-# (see README-REPRODUCE.md) — it expects Google's Kleaf/Bazel build to set
-# REAL_CC to the real compiler binary. We're not going through Kleaf, so we
-# have to supply it ourselves on every invocation or CC silently becomes empty.
 export REAL_CC=clang
+export KCFLAGS="-march=armv8.1-a"
 
 # --- 4. Apply source-tree fixes --------------------------------------------
 log "Applying kernel source fixes (oculus-kernel-fixes.patch)"
