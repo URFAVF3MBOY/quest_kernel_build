@@ -65,26 +65,27 @@ index d064860c1..823bc3347 100644
  	default_bridge.size = DEFAULT_BRIDGE_SIZE;
  	default_bridge.vaddr = (void *)__get_free_pages(GFP_KERNEL|__GFP_COMP,
 diff --git a/drivers/staging/oculus/Kconfig b/drivers/staging/oculus/Kconfig
+index cc2a47385..c2b05a8a3 100644
 --- a/drivers/staging/oculus/Kconfig
 +++ b/drivers/staging/oculus/Kconfig
 @@ -285,7 +285,6 @@ config VENDOR_DT_OUTPUT_DISABLE
-           device-trees to be built by default. Don't build them when
-           VENDOR_DT_OUTPUT_DISABLE is set since we don't need any of these on Meta
-           platforms.
+ 	  VENDOR_DT_OUTPUT_DISABLE is set since we don't need any of these on Meta
+ 	  platforms.
  
 -source "drivers/staging/oculus/internal/Kconfig"
  source "drivers/staging/oculus/mcu/Kconfig"
  
  endif # OCULUS
 diff --git a/drivers/staging/oculus/Makefile b/drivers/staging/oculus/Makefile
+index 6f6372ce3..5431e1e30 100644
 --- a/drivers/staging/oculus/Makefile
 +++ b/drivers/staging/oculus/Makefile
-@@ -38,7 +38,6 @@ obj-$(CONFIG_SENSORS_PWM_TACH_FAN)      += pwm-tach-fan.o
- obj-$(CONFIG_SPI_STP)                   += stp/
- obj-$(CONFIG_ST_VD6281_ADAPTER)         += vd6281/
- obj-$(CONFIG_UVLO_TLV4021)              += uvlo_tlv4021.o
--obj-y                                   += internal/
- obj-y                                   += mcu/
+@@ -39,5 +39,4 @@ obj-$(CONFIG_SENSORS_PWM_TACH_FAN)	+= pwm-tach-fan.o
+ obj-$(CONFIG_SPI_STP)			+= stp/
+ obj-$(CONFIG_ST_VD6281_ADAPTER)		+= vd6281/
+ obj-$(CONFIG_UVLO_TLV4021)		+= uvlo_tlv4021.o
+-obj-y					+= internal/
+ obj-y					+= mcu/
 diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
 index 185db2ddc..0106e9363 100644
 --- a/drivers/thermal/thermal_core.c
