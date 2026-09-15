@@ -101,7 +101,7 @@ fi
 export PATH="$CLANG_DIR/bin:$PATH"
 export ARCH=arm64
 export LLVM=1
-export LLVM_IAS=1
+export LLVM_IAS=0
 export CROSS_COMPILE=aarch64-linux-gnu-
 export REAL_CC=clang
 export KCFLAGS="-march=armv8.1-a"
@@ -120,9 +120,9 @@ fi
 log "Building real-device kernel (your kernel.config)"
 cp "$KERNEL_CONFIG" .config
 sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
-make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" olddefconfig
+make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" olddefconfig
 
-make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" \
+make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" \
   -j"$(nproc)" Image dtbs
 
 OUT_DEVICE="$BUILD_DIR/oculus-quest2-device-kernel"
@@ -152,9 +152,9 @@ cp "$KERNEL_CONFIG" .config
   -d QCOM_QHEE_ENABLE_MEM_PROTECTION \
   -d QCOM_EARLY_RANDOM -d MSM_APM -d MSM_PM \
   -d MSM_IPC_ROUTER_SMD_XPRT -d MSM_IPC_ROUTER_GLINK_XPRT
-make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang olddefconfig
+make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang olddefconfig
 
-make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang \
+make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang \
   -j"$(nproc)" Image
 
 mkdir -p "$BUILD_DIR/qemu-kernel"
