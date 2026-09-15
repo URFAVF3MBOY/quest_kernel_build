@@ -1,4 +1,3 @@
-```yaml
 name: Quest 2 Kernel Build
 
 on:
@@ -15,10 +14,7 @@ jobs:
       - name: Run Quest 2 build
         working-directory: q2_build
         env:
-          # Build the exact Quest 2 kernel revision requested.
           KERNEL_COMMIT: "5a02b7f302c9c1a3d979283576d3caa7724306a2"
-
-          # Keep the real Quest kernel's verity workaround.
           VERITY_BYPASS: "1"
 
         run: |
@@ -31,10 +27,8 @@ jobs:
           name: quest2-kernel-5a02b7f
           path: |
             q2_build/build/oculus-quest2-device-kernel/Image
-            q2_build/build/oculus-quest2-device-kernel/Image.gz-dtb
             q2_build/build/oculus-quest2-device-kernel/vmlinux
             q2_build/build/oculus-quest2-device-kernel/System.map
             q2_build/build/oculus-quest2-device-kernel/.config
-            q2_build/build/oculus-quest2-device-kernel/boot-repacked.img
+            q2_build/build/oculus-quest2-device-kernel/dtbs/**
           if-no-files-found: error
-```
