@@ -79,12 +79,12 @@ diff --git a/drivers/staging/oculus/Kconfig b/drivers/staging/oculus/Kconfig
 diff --git a/drivers/staging/oculus/Makefile b/drivers/staging/oculus/Makefile
 --- a/drivers/staging/oculus/Makefile
 +++ b/drivers/staging/oculus/Makefile
-@@ -32,5 +32,4 @@ obj-$(CONFIG_RT600_CTRL)        += rt600-ctrl.o
- obj-$(CONFIG_TOP_PANEL_SENSOR)   += top_panel_sensor.o
- obj-$(CONFIG_SPI_STP)            += stp/
- obj-$(CONFIG_VIRTUAL_SENSOR_UTILS) += virtual_sensor_utils.o
--obj-y                            += internal/
- obj-y                            += mcu/
+@@ -38,7 +38,6 @@ obj-$(CONFIG_SENSORS_PWM_TACH_FAN)      += pwm-tach-fan.o
+ obj-$(CONFIG_SPI_STP)                   += stp/
+ obj-$(CONFIG_ST_VD6281_ADAPTER)         += vd6281/
+ obj-$(CONFIG_UVLO_TLV4021)              += uvlo_tlv4021.o
+-obj-y                                   += internal/
+ obj-y                                   += mcu/
 diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
 index 185db2ddc..0106e9363 100644
 --- a/drivers/thermal/thermal_core.c
