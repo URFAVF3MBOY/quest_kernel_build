@@ -109,11 +109,13 @@ export KCFLAGS="-march=armv8.1-a"
 # --- 4. Apply source-tree fixes --------------------------------------------
 log "Applying kernel source fixes (oculus-kernel-fixes.patch)"
 cd "$KERNEL_DIR"
-if ! git diff --quiet -- . 2>/dev/null || [ -n "$(git status --short --untracked-files=no)" ]; then
-  echo "Tree already has local modifications; skipping patch apply (assuming already applied)."
-else
-  git apply --check "$WORK_DIR/oculus-kernel-fixes.patch"
+if git apply --check "$WORK_DIR/oculus-kernel-fixes.patch" 2>/dev/null; then
   git apply "$WORK_DIR/oculus-kernel-fixes.patch"
+elif git apply --check --reverse "$WORK_DIR/oculus-kernel-fixes.patch" 2>/dev/null; then
+  echo "Patch already applied, skipping."
+else
+  echo "ERROR: oculus-kernel-fixes.patch does not apply cleanly and is not already applied." >&2
+  exit 1
 fi
 
 # --- 5. Build the real Quest 2 device kernel -------------------------------
