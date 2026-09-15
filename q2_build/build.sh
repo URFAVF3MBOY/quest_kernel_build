@@ -42,21 +42,37 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   dwarves expect
 
 # --- 2. Kernel source -----------------------------------------------------
-if [ ! -d "$KERNEL_DIR" ]; then
-  log "Cloning oculus-linux-kernel (oculus-quest2-kernel-master)"
-  git clone --depth 1 --branch oculus-quest2-kernel-master \
-    https://github.com/facebookincubator/oculus-linux-kernel.git "$KERNEL_DIR"
-fi
-if [ -n "$KERNEL_COMMIT" ]; then
-  cd "$KERNEL_DIR"
-  if [ "$(git rev-parse HEAD)" != "$KERNEL_COMMIT" ]; then
-    log "Pinning kernel source to $KERNEL_COMMIT"
-    git fetch --depth 1 origin "$KERNEL_COMMIT"
-    git checkout "$KERNEL_COMMIT"
-  fi
-  cd "$WORK_DIR"
+if [ ! -d "$KERNEL_DIR/.git" ]; then
+  log "Cloning oculus-linux-kernel"
+  git clone https://github.com/facebookincubator/oculus-linux-kernel.git "$KERNEL_DIR"
 fi
 
+cd "$KERNEL_DIR"
+
+if [ -n "$KERNEL_COMMIT" ]; then
+  log "Checking out exact kernel commit $KERNEL_COMMIT"
+
+  git fetch --no-tags origin "$KERNEL_COMMIT"
+  git checkout --detach "$KERNEL_COMMIT"
+
+  ACTUAL_COMMIT="$(git rev-parse HEAD)"
+
+  if [ "$ACTUAL_COMMIT" != "$KERNEL_COMMIT" ]; then
+    echo "ERROR: kernel commit mismatch!" >&2
+    echo "Expected: $KERNEL_COMMIT" >&2
+    echo "Actual:   $ACTUAL_COMMIT" >&2
+    exit 1
+  fi
+
+  echo "Kernel source verified at: $ACTUAL_COMMIT"
+else
+  log "No KERNEL_COMMIT specified; using oculus-quest2-kernel-master"
+
+  git fetch --no-tags origin oculus-quest2-kernel-master
+  git checkout --detach origin/oculus-quest2-kernel-master
+fi
+
+cd "$WORK_DIR"
 
 # --- 3. Vendor toolchain (AOSP prebuilt Clang r450784e / 14.0.7) -----------
 # Matches this kernel.config's own CONFIG_CC_VERSION_TEXT exactly (same
