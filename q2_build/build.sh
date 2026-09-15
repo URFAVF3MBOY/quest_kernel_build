@@ -120,9 +120,9 @@ fi
 log "Building real-device kernel (your kernel.config)"
 cp "$KERNEL_CONFIG" .config
 sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
-make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang olddefconfig
+make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" olddefconfig
 
-make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang \
+make ARCH=$ARCH LLVM=1 LLVM_IAS=1 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" \
   -j"$(nproc)" Image dtbs
 
 OUT_DEVICE="$BUILD_DIR/oculus-quest2-device-kernel"
