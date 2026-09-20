@@ -179,7 +179,7 @@ build_twrp() {
         grep -R -l \
             "CtsAppBindingHostTestCases" \
             cts 2>/dev/null | head -1 || true
-    )
+    )"
 
     if [[ -n "$CTS_BINDING_MK" ]]; then
         echo "Found CTS definition:"
