@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,11 +24,13 @@ LINEAGE_RECOVERY_BRANCH="${LINEAGE_RECOVERY_BRANCH:-lineage-17.1}"
 JOBS="${JOBS:-$(nproc)}"
 TARGET="${1:-twrp}"
 
+
 die() {
     echo
     echo "ERROR: $*" >&2
     exit 1
 }
+
 
 info() {
     echo
@@ -36,7 +39,8 @@ info() {
     echo "============================================================"
 }
 
-case "$TARGET" in
+
+case "${TARGET}" in
     twrp|lineage)
         ;;
     *)
@@ -44,10 +48,12 @@ case "$TARGET" in
         ;;
 esac
 
+
 command -v git >/dev/null 2>&1 || die "git is required"
 command -v repo >/dev/null 2>&1 || die "repo is required"
 command -v sed >/dev/null 2>&1 || die "sed is required"
 command -v grep >/dev/null 2>&1 || die "grep is required"
+
 
 export LC_ALL=C
 export LANG=C
@@ -57,6 +63,7 @@ export ALLOW_MISSING_DEPENDENCIES=true
 export BUILD_BROKEN_DUP_RULES=true
 export BUILD_BROKEN_PHONY_TARGETS=true
 export WITH_DEXPREOPT=false
+
 
 echo
 echo "============================================================"
@@ -75,7 +82,8 @@ echo "  ${DEVICE_REPO}"
 echo "  branch: ${DEVICE_BRANCH}"
 echo
 
-if [[ "$TARGET" == "twrp" ]]; then
+
+if [[ "${TARGET}" == "twrp" ]]; then
     echo "Build graph:"
     echo "  ${TWRP_MANIFEST}"
     echo "  branch: ${TWRP_BRANCH}"
@@ -89,16 +97,20 @@ else
     echo "  branch: ${LINEAGE_RECOVERY_BRANCH}"
 fi
 
+
 echo
 echo "============================================================"
 
 
 build_twrp() {
+
     info "Preparing TWRP Android source"
 
     mkdir -p "${BUILD_ROOT}"
 
+
     if [[ ! -d "${TWRP_SRC}/.repo" ]]; then
+
         rm -rf "${TWRP_SRC}"
         mkdir -p "${TWRP_SRC}"
 
@@ -110,10 +122,13 @@ build_twrp() {
             --depth=1 \
             -u "${TWRP_MANIFEST}" \
             -b "${TWRP_BRANCH}"
+
     else
+
         cd "${TWRP_SRC}"
 
         info "Existing TWRP source tree found"
+
     fi
 
 
@@ -136,11 +151,13 @@ build_twrp() {
 
     mkdir -p "$(dirname "${DEVICE_PATH}")"
 
+
     git clone \
         --depth=1 \
         --branch "${DEVICE_BRANCH}" \
         "${DEVICE_REPO}" \
         "${DEVICE_TREE_TMP}"
+
 
     [[ -d "${DEVICE_TREE_TMP}/device/oculus/monterey" ]] || \
         die "TheCez device tree directory was not found in repository"
@@ -175,8 +192,8 @@ build_twrp() {
     ###########################################################################
     # Android build environment
     #
-    # Android 10's envsetup/lunch scripts are not compatible with `set -u`.
-    # Disable nounset for the entire environment setup phase.
+    # Android 10 envsetup/lunch uses variables that can be unset.
+    # Keep nounset disabled for the Android environment setup.
     ###########################################################################
 
     info "Loading Android build environment"
@@ -202,9 +219,6 @@ build_twrp() {
         exit "${LUNCH_STATUS}"
     fi
 
-    set -u
-
-
     echo
     echo "============================================================"
     echo "==> Android build environment ready"
@@ -215,20 +229,17 @@ build_twrp() {
     echo "TARGET_BUILD_VARIANT=${TARGET_BUILD_VARIANT:-unset}"
     echo "TARGET_DEVICE=${TARGET_DEVICE:-unset}"
 
-
     ###########################################################################
-    # Android 10 host-test compatibility
+    # Keep nounset disabled for the Android build itself.
     #
-    # Older Android build systems use LOCAL_TARGET_REQUIRED_MODULES for
-    # dependencies of host tests. Newer build/make validation rejects some
-    # of those entries because the referenced modules are device modules.
-    #
-    # Convert those host-test definitions to LOCAL_REQUIRED_MODULES.
+    # The old Android 10/TWRP make environment contains shell fragments that
+    # expect unset variables to be allowed.
     ###########################################################################
 
     info "Checking Android 10 host-test build definitions"
 
     PATCH_COUNT=0
+
 
     while IFS= read -r ANDROID_MK; do
 
@@ -242,6 +253,7 @@ build_twrp() {
                 continue
                 ;;
         esac
+
 
         if ! grep -q "LOCAL_TARGET_REQUIRED_MODULES" \
             "${ANDROID_MK}" 2>/dev/null; then
@@ -257,6 +269,7 @@ build_twrp() {
             "${ANDROID_MK}" 2>/dev/null; then
 
             IS_HOST_TEST=true
+
         fi
 
 
@@ -265,6 +278,7 @@ build_twrp() {
             "${ANDROID_MK}" 2>/dev/null; then
 
             IS_HOST_TEST=true
+
         fi
 
 
@@ -279,6 +293,7 @@ build_twrp() {
 
 
         BACKUP="${ANDROID_MK}.quest1-backup"
+
 
         if [[ ! -f "${BACKUP}" ]]; then
             cp "${ANDROID_MK}" "${BACKUP}"
@@ -305,7 +320,14 @@ build_twrp() {
 
 
     ###########################################################################
-    # Build recovery
+    # Build
+    #
+    # Quest 1 uses:
+    #
+    #     BOARD_USES_RECOVERY_AS_BOOT := true
+    #
+    # Therefore there is NO separate recovery.img.
+    # TWRP recovery is packaged into boot.img.
     ###########################################################################
 
     info "Building Quest 1 TWRP recovery"
@@ -315,16 +337,36 @@ build_twrp() {
     fi
 
 
-    RECOVERY_IMAGE="${TWRP_SRC}/out/target/product/monterey/recovery.img"
+    ###########################################################################
+    # Quest 1 output
+    ###########################################################################
+
+    BOOT_IMAGE="${TWRP_SRC}/out/target/product/monterey/boot.img"
 
 
-    if [[ ! -f "${RECOVERY_IMAGE}" ]]; then
-        die "TWRP build returned successfully but recovery.img was not produced: ${RECOVERY_IMAGE}"
+    if [[ ! -f "${BOOT_IMAGE}" ]]; then
+
+        echo
+        echo "ERROR: TWRP build completed but boot.img was not produced:"
+        echo
+        echo "  ${BOOT_IMAGE}"
+        echo
+        echo "Available monterey image files:"
+        find "${TWRP_SRC}/out/target/product/monterey" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.img' \
+            -print \
+            2>/dev/null || true
+        echo
+
+        exit 1
+
     fi
 
 
     ###########################################################################
-    # Copy output
+    # Copy final artifacts
     ###########################################################################
 
     OUTPUT="${ROOT_DIR}/build/recovery/twrp"
@@ -334,8 +376,22 @@ build_twrp() {
 
 
     cp \
-        "${RECOVERY_IMAGE}" \
+        "${BOOT_IMAGE}" \
+        "${OUTPUT}/boot.img"
+
+
+    # Convenience copy.
+    #
+    # This is NOT a separate recovery partition image.
+    # It is the exact same boot image containing TWRP recovery.
+    cp \
+        "${BOOT_IMAGE}" \
         "${OUTPUT}/recovery.img"
+
+
+    sha256sum \
+        "${OUTPUT}/boot.img" \
+        > "${OUTPUT}/boot.img.sha256"
 
 
     sha256sum \
@@ -367,6 +423,15 @@ arm64
 Android base:
 10 / API 29
 
+Recovery layout:
+BOARD_USES_RECOVERY_AS_BOOT
+
+Recovery partition:
+None
+
+Recovery image:
+boot.img
+
 Device tree:
 ${DEVICE_REPO}
 
@@ -392,15 +457,20 @@ EOF
     echo "TWRP BUILD SUCCESSFUL"
     echo "============================================================"
     echo
-    echo "Recovery:"
+    echo "Quest 1 recovery is packaged as:"
+    echo
+    echo "  ${OUTPUT}/boot.img"
+    echo
+    echo "Convenience recovery.img copy:"
+    echo
     echo "  ${OUTPUT}/recovery.img"
     echo
     echo "SHA256:"
-    cat "${OUTPUT}/recovery.img.sha256"
+    cat "${OUTPUT}/boot.img.sha256"
     echo
     echo "Test without flashing:"
     echo
-    echo "  fastboot boot ${OUTPUT}/recovery.img"
+    echo "  fastboot boot ${OUTPUT}/boot.img"
     echo
     echo "============================================================"
 }
