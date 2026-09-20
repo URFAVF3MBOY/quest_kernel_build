@@ -100,7 +100,6 @@ info "Preparing TWRP Android source"
 
 mkdir -p "${BUILD_ROOT}"
 
-
 if [[ ! -d "${TWRP_SRC}/.repo" ]]; then
 
     rm -rf "${TWRP_SRC}"
@@ -224,9 +223,6 @@ echo "TARGET_DEVICE=${TARGET_DEVICE:-unset}"
 
 ###########################################################################
 # Keep nounset disabled for the Android build itself.
-#
-# The old Android 10/TWRP make environment contains shell fragments that
-# expect unset variables to be allowed.
 ###########################################################################
 
 info "Checking Android 10 host-test build definitions"
@@ -258,7 +254,7 @@ while IFS= read -r ANDROID_MK; do
 
 
     if grep -q \
-        "LOCAL_MODULE_HOST_BUILD[[:space:]]*:=\?[[:space:]]*true" \
+        "LOCAL_MODULE_HOST_BUILD[[:space:]]*:[[:space:]]*=[[:space:]]*true" \
         "${ANDROID_MK}" 2>/dev/null; then
 
         IS_HOST_TEST=true
@@ -319,19 +315,8 @@ echo "Host-test compatibility patches applied: ${PATCH_COUNT}"
 #
 #     BOARD_USES_RECOVERY_AS_BOOT := true
 #
-# Therefore there is NO separate recovery partition.
+# Therefore there is no separate recovery partition.
 # TWRP recovery is packaged into boot.img.
-#
-# IMPORTANT:
-#
-#     mka recoveryimage
-#
-# is not the correct target for this device. It can report success without
-# producing recovery.img because the device uses recovery-as-boot.
-#
-#     mka bootimage
-#
-# builds the actual image containing the recovery ramdisk.
 ###########################################################################
 
 info "Building Quest 1 TWRP boot/recovery image"
@@ -388,6 +373,7 @@ cp \
 #
 # This is NOT a separate recovery partition image.
 # It is the exact same boot image containing TWRP recovery.
+
 cp \
     "${BOOT_IMAGE}" \
     "${OUTPUT}/recovery.img"
@@ -655,15 +641,10 @@ echo "============================================================"
 }
 
 case "${TARGET}" in
-
-```
 twrp)
-    build_twrp
-    ;;
-
+build_twrp
+;;
 lineage)
-    prepare_lineage
-    ;;
-```
-
+prepare_lineage
+;;
 esac
