@@ -251,17 +251,15 @@ build_twrp()
 
     info "Loading Android build environment"
 
-    # Android's old envsetup.sh references shell variables that may be
-    # unset. Temporarily disable nounset while sourcing it.
+    # Android 10/TWRP build scripts are not nounset-safe.
+    # Keep nounset disabled through envsetup, lunch, and the actual build.
     set +u
+
     source build/envsetup.sh
-    set -u
 
     info "Selecting Quest 1 recovery target"
 
-    set +u
     lunch omni_monterey-eng
-    set -u
 
     ###########################################################################
     # Build recovery
@@ -270,6 +268,9 @@ build_twrp()
     info "Building Quest 1 recovery"
 
     mka recoveryimage -j"${JOBS}"
+
+    # Restore nounset after the Android build system is finished.
+    set -u
 
     RECOVERY_IMAGE="${TWRP_SRC}/out/target/product/monterey/recovery.img"
 
