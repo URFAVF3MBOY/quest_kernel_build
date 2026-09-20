@@ -98,29 +98,6 @@ fi
 
 cd "$KERNEL_DIR"
 
-if [ -n "$KERNEL_COMMIT" ]; then
-  log "Checking out exact kernel commit $KERNEL_COMMIT"
-
-  git fetch --no-tags origin "$KERNEL_COMMIT"
-  git checkout --detach "$KERNEL_COMMIT"
-
-  ACTUAL_COMMIT="$(git rev-parse HEAD)"
-
-  if [ "$ACTUAL_COMMIT" != "$KERNEL_COMMIT" ]; then
-    echo "ERROR: kernel commit mismatch!" >&2
-    echo "Expected: $KERNEL_COMMIT" >&2
-    echo "Actual:   $ACTUAL_COMMIT" >&2
-    exit 1
-  fi
-
-  echo "Kernel source verified at: $ACTUAL_COMMIT"
-else
-  log "No KERNEL_COMMIT specified; using oculus-quest2-kernel-master"
-
-  git fetch --no-tags origin oculus-quest2-kernel-master
-  git checkout --detach origin/oculus-quest2-kernel-master
-fi
-
 sed -i '/source "drivers\/staging\/oculus\/internal\/Kconfig"/d' \
     "$KERNEL_DIR/drivers/staging/oculus/Kconfig"
 
