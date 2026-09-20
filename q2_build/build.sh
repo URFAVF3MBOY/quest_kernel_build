@@ -184,23 +184,9 @@ log "Applying kernel source fixes (oculus-kernel-fixes.patch)"
 
 cd "$KERNEL_DIR"
 
-if git apply --check "$WORK_DIR/oculus-kernel-fixes.patch" 2>/dev/null; then
+git apply "$WORK_DIR/oculus-kernel-fixes.patch"
 
-  git apply "$WORK_DIR/oculus-kernel-fixes.patch"
-
-elif git apply \
-  --check \
-  --reverse \
-  "$WORK_DIR/oculus-kernel-fixes.patch" 2>/dev/null; then
-
-  echo "Patch already applied, skipping."
-
-else
-
-  echo "ERROR: oculus-kernel-fixes.patch does not apply cleanly and is not already applied." >&2
-  exit 1
-
-fi
+cd "$WORK_DIR"
 
 # --- 5. Build the real Quest 2 device kernel -------------------------------
 log "Building real-device kernel (your kernel.config)"
