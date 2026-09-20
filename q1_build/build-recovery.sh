@@ -194,6 +194,9 @@ build_twrp()
 
     info "Fetching Quest 1 device tree"
 
+    DEVICE_TREE_TMP="${BUILD_ROOT}/device_oculus_monterey"
+
+    rm -rf "${DEVICE_TREE_TMP}"
     rm -rf "${DEVICE_PATH}"
 
     mkdir -p "$(dirname "${DEVICE_PATH}")"
@@ -202,6 +205,24 @@ build_twrp()
         --depth=1 \
         --branch "${DEVICE_BRANCH}" \
         "${DEVICE_REPO}" \
+        "${DEVICE_TREE_TMP}"
+
+    ###########################################################################
+    # TheCez repository layout:
+    #
+    # device_oculus_monterey/
+    # └── device/
+    #     └── oculus/
+    #         └── monterey/
+    #
+    # Copy only the actual Android device tree into the TWRP source tree.
+    ###########################################################################
+
+    [[ -d "${DEVICE_TREE_TMP}/device/oculus/monterey" ]] || \
+        die "TheCez device tree directory was not found in repository"
+
+    cp -a \
+        "${DEVICE_TREE_TMP}/device/oculus/monterey" \
         "${DEVICE_PATH}"
 
     ###########################################################################
@@ -264,9 +285,17 @@ build_twrp()
         "$OUTPUT/recovery.img" \
         > "$OUTPUT/recovery.img.sha256"
 
+    ###########################################################################
+    # Device tree commit
+    ###########################################################################
+
     DEVICE_COMMIT="$(
-        git -C "${DEVICE_PATH}" rev-parse HEAD 2>/dev/null || echo unknown
+        git -C "${DEVICE_TREE_TMP}" rev-parse HEAD 2>/dev/null || echo unknown
     )"
+
+    ###########################################################################
+    # Build information
+    ###########################################################################
 
     cat > "$OUTPUT/build-info.txt" <<EOF
 Quest 1 Recovery Build
@@ -398,6 +427,9 @@ prepare_lineage()
 
     info "Fetching Quest 1 device tree"
 
+    DEVICE_TREE_TMP="${BUILD_ROOT}/lineage_device_oculus_monterey"
+
+    rm -rf "${DEVICE_TREE_TMP}"
     rm -rf "${DEVICE_PATH}"
 
     mkdir -p "$(dirname "${DEVICE_PATH}")"
@@ -406,10 +438,28 @@ prepare_lineage()
         --depth=1 \
         --branch "${DEVICE_BRANCH}" \
         "${DEVICE_REPO}" \
+        "${DEVICE_TREE_TMP}"
+
+    ###########################################################################
+    # Install actual nested Android device tree
+    ###########################################################################
+
+    [[ -d "${DEVICE_TREE_TMP}/device/oculus/monterey" ]] || \
+        die "TheCez device tree directory was not found in repository"
+
+    cp -a \
+        "${DEVICE_TREE_TMP}/device/oculus/monterey" \
         "${DEVICE_PATH}"
 
+    ###########################################################################
+    # Verify
+    ###########################################################################
+
+    [[ -f "${DEVICE_PATH}/BoardConfig.mk" ]] || \
+        die "Quest BoardConfig.mk missing"
+
     [[ -d "${DEVICE_PATH}" ]] || \
-        die "Quest device tree was not cloned"
+        die "Quest device tree missing"
 
     ###########################################################################
     # Pull Lineage recovery implementation
@@ -428,14 +478,11 @@ prepare_lineage()
         bootable/recovery
 
     ###########################################################################
-    # Verify
+    # Verify recovery source
     ###########################################################################
 
     [[ -f bootable/recovery/Android.bp ]] || \
         die "Lineage recovery Android.bp missing"
-
-    [[ -d "${DEVICE_PATH}" ]] || \
-        die "Quest device tree missing"
 
     ###########################################################################
     # Collect source tree information
@@ -447,7 +494,7 @@ prepare_lineage()
     mkdir -p "$OUTPUT"
 
     DEVICE_COMMIT="$(
-        git -C "${DEVICE_PATH}" rev-parse HEAD 2>/dev/null || echo unknown
+        git -C "${DEVICE_TREE_TMP}" rev-parse HEAD 2>/dev/null || echo unknown
     )"
 
     RECOVERY_COMMIT="$(
