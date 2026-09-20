@@ -12,43 +12,45 @@ set -euo pipefail
 #   ./build-recovery.sh
 #   ./build-recovery.sh twrp
 #   ./build-recovery.sh lineage
-#
-# TWRP:
-#   Builds the known Quest 1 recovery using TheCez's device tree and the
-#   Android-10 minimal-manifest-twrp build system.
-#
-# Lineage:
-#   Fetches LineageOS Android-10 recovery source and prepares a separate
-#   source tree for Quest-specific recovery porting.
 ###############################################################################
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 BUILD_ROOT="${ROOT_DIR}/build/recovery"
 
-# Android source trees are kept separate from your normal kernel build.
 TWRP_SRC="${BUILD_ROOT}/android-twrp"
 LINEAGE_SRC="${BUILD_ROOT}/android-lineage"
 
+###############################################################################
 # Quest 1 device tree
+###############################################################################
+
 DEVICE_REPO="https://github.com/TheCez/device_oculus_monterey.git"
 DEVICE_BRANCH="${DEVICE_BRANCH:-main}"
 
 DEVICE_PATH="device/oculus/monterey"
 
-# Verified Quest 1 recovery build graph
+###############################################################################
+# TWRP Android 10 build graph
+###############################################################################
+
 TWRP_MANIFEST="https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git"
 TWRP_BRANCH="${TWRP_BRANCH:-twrp-10.0-deprecated}"
 
-# Lineage Android 10 generation
+###############################################################################
+# LineageOS Android 10
+###############################################################################
+
 LINEAGE_MANIFEST="https://github.com/LineageOS/android.git"
 LINEAGE_BRANCH="${LINEAGE_BRANCH:-lineage-17.1}"
 
 LINEAGE_RECOVERY_REPO="https://github.com/LineageOS/android_bootable_recovery.git"
 LINEAGE_RECOVERY_BRANCH="${LINEAGE_RECOVERY_BRANCH:-lineage-17.1}"
 
-JOBS="${JOBS:-$(nproc)}"
+###############################################################################
+# Build configuration
+###############################################################################
 
+JOBS="${JOBS:-$(nproc)}"
 TARGET="${1:-twrp}"
 
 ###############################################################################
@@ -75,9 +77,7 @@ info()
 ###############################################################################
 
 case "$TARGET" in
-    twrp)
-        ;;
-    lineage)
+    twrp|lineage)
         ;;
     *)
         die "Usage: $0 [twrp|lineage]"
@@ -103,7 +103,6 @@ export TZ=UTC
 export ALLOW_MISSING_DEPENDENCIES=true
 export BUILD_BROKEN_DUP_RULES=true
 export BUILD_BROKEN_PHONY_TARGETS=true
-
 export WITH_DEXPREOPT=false
 
 ###############################################################################
@@ -177,33 +176,7 @@ build_twrp()
     fi
 
     ###########################################################################
-    # Quest device tree
-    ###########################################################################
-
-    info "Installing Quest 1 local manifest"
-
-    mkdir -p .repo/local_manifests
-
-    cat > .repo/local_manifests/monterey.xml <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<manifest>
-
-    <remote
-        name="quest"
-        fetch="https://github.com/"
-        revision="${DEVICE_BRANCH}" />
-
-    <project
-        name="TheCez/device_oculus_monterey"
-        path="${DEVICE_PATH}"
-        remote="quest"
-        revision="${DEVICE_BRANCH}" />
-
-</manifest>
-EOF
-
-    ###########################################################################
-    # Sync
+    # Sync TWRP base tree
     ###########################################################################
 
     info "Syncing TWRP source"
@@ -216,8 +189,29 @@ EOF
         -j"${JOBS}"
 
     ###########################################################################
-    # Verify tree
+    # Clone Quest 1 device tree
     ###########################################################################
+
+    info "Fetching Quest 1 device tree"
+
+    rm -rf "${DEVICE_PATH}"
+
+    mkdir -p "$(dirname "${DEVICE_PATH}")"
+
+    git clone \
+        --depth=1 \
+        --branch "${DEVICE_BRANCH}" \
+        "${DEVICE_REPO}" \
+        "${DEVICE_PATH}"
+
+    ###########################################################################
+    # Verify Quest device tree
+    ###########################################################################
+
+    echo
+    echo "Quest device tree contents:"
+    find "${DEVICE_PATH}" -maxdepth 2 -type f | sort | head -100
+    echo
 
     [[ -f "${DEVICE_PATH}/BoardConfig.mk" ]] || \
         die "Quest BoardConfig.mk missing"
@@ -227,6 +221,8 @@ EOF
 
     [[ -f "${DEVICE_PATH}/recovery/root/init.recovery.monterey.rc" ]] || \
         die "Quest recovery init script missing"
+
+    info "Quest 1 device tree successfully installed"
 
     ###########################################################################
     # Build
@@ -241,7 +237,7 @@ EOF
     lunch omni_monterey-eng
 
     ###########################################################################
-    # Build
+    # Build recovery
     ###########################################################################
 
     info "Building Quest 1 recovery"
@@ -268,7 +264,9 @@ EOF
         "$OUTPUT/recovery.img" \
         > "$OUTPUT/recovery.img.sha256"
 
-    DEVICE_COMMIT="$(git -C "${DEVICE_PATH}" rev-parse HEAD 2>/dev/null || echo unknown)"
+    DEVICE_COMMIT="$(
+        git -C "${DEVICE_PATH}" rev-parse HEAD 2>/dev/null || echo unknown
+    )"
 
     cat > "$OUTPUT/build-info.txt" <<EOF
 Quest 1 Recovery Build
@@ -382,33 +380,7 @@ prepare_lineage()
     fi
 
     ###########################################################################
-    # Device tree
-    ###########################################################################
-
-    info "Installing Quest device tree"
-
-    mkdir -p .repo/local_manifests
-
-    cat > .repo/local_manifests/monterey.xml <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<manifest>
-
-    <remote
-        name="quest"
-        fetch="https://github.com/"
-        revision="${DEVICE_BRANCH}" />
-
-    <project
-        name="TheCez/device_oculus_monterey"
-        path="${DEVICE_PATH}"
-        remote="quest"
-        revision="${DEVICE_BRANCH}" />
-
-</manifest>
-EOF
-
-    ###########################################################################
-    # Sync base tree
+    # Sync base LineageOS tree
     ###########################################################################
 
     info "Syncing LineageOS source"
@@ -419,6 +391,25 @@ EOF
         --no-clone-bundle \
         --no-tags \
         -j"${JOBS}"
+
+    ###########################################################################
+    # Clone Quest 1 device tree
+    ###########################################################################
+
+    info "Fetching Quest 1 device tree"
+
+    rm -rf "${DEVICE_PATH}"
+
+    mkdir -p "$(dirname "${DEVICE_PATH}")"
+
+    git clone \
+        --depth=1 \
+        --branch "${DEVICE_BRANCH}" \
+        "${DEVICE_REPO}" \
+        "${DEVICE_PATH}"
+
+    [[ -d "${DEVICE_PATH}" ]] || \
+        die "Quest device tree was not cloned"
 
     ###########################################################################
     # Pull Lineage recovery implementation
@@ -432,8 +423,8 @@ EOF
 
     git clone \
         --depth=1 \
-        --branch "$LINEAGE_RECOVERY_BRANCH" \
-        "$LINEAGE_RECOVERY_REPO" \
+        --branch "${LINEAGE_RECOVERY_BRANCH}" \
+        "${LINEAGE_RECOVERY_REPO}" \
         bootable/recovery
 
     ###########################################################################
@@ -447,13 +438,21 @@ EOF
         die "Quest device tree missing"
 
     ###########################################################################
-    # Collect the source tree information
+    # Collect source tree information
     ###########################################################################
 
     OUTPUT="${ROOT_DIR}/build/recovery/lineage-source"
 
     rm -rf "$OUTPUT"
     mkdir -p "$OUTPUT"
+
+    DEVICE_COMMIT="$(
+        git -C "${DEVICE_PATH}" rev-parse HEAD 2>/dev/null || echo unknown
+    )"
+
+    RECOVERY_COMMIT="$(
+        git -C bootable/recovery rev-parse HEAD 2>/dev/null || echo unknown
+    )"
 
     cat > "$OUTPUT/build-info.txt" <<EOF
 Quest 1 Lineage Recovery Port
@@ -480,11 +479,17 @@ ${LINEAGE_RECOVERY_REPO}
 Lineage recovery branch:
 ${LINEAGE_RECOVERY_BRANCH}
 
+Lineage recovery commit:
+${RECOVERY_COMMIT}
+
 Quest device tree:
 ${DEVICE_REPO}
 
 Quest device tree branch:
 ${DEVICE_BRANCH}
+
+Quest device tree commit:
+${DEVICE_COMMIT}
 
 Prepared:
 $(date -u '+%Y-%m-%d %H:%M:%S UTC')
@@ -527,7 +532,6 @@ EOF
 ###############################################################################
 
 case "$TARGET" in
-
     twrp)
         build_twrp
         ;;
@@ -535,5 +539,4 @@ case "$TARGET" in
     lineage)
         prepare_lineage
         ;;
-
 esac
