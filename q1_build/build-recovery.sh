@@ -251,11 +251,17 @@ build_twrp()
 
     info "Loading Android build environment"
 
+    # Android's old envsetup.sh references shell variables that may be
+    # unset. Temporarily disable nounset while sourcing it.
+    set +u
     source build/envsetup.sh
+    set -u
 
     info "Selecting Quest 1 recovery target"
 
+    set +u
     lunch omni_monterey-eng
+    set -u
 
     ###########################################################################
     # Build recovery
