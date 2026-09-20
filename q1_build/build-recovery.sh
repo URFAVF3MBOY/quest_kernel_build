@@ -44,8 +44,9 @@ die "Usage: $0 [twrp|lineage]"
 esac
 
 command -v git >/dev/null 2>&1 || die "git is required"
-command -v python3 >/dev/null 2>&1 || die "python3 is required"
 command -v repo >/dev/null 2>&1 || die "repo is required"
+command -v sed >/dev/null 2>&1 || die "sed is required"
+command -v grep >/dev/null 2>&1 || die "grep is required"
 
 export LC_ALL=C
 export LANG=C
@@ -170,84 +171,72 @@ info "Selecting Quest 1 recovery target"
 
 lunch omni_monterey-eng
 
+set -u
+
 ###########################################################################
 # Android 10 host-test build graph compatibility
 ###########################################################################
 
 info "Applying Android 10 host-test build-graph compatibility fixes"
 
-python3 <<'PY'
-```
+PATCH_COUNT=0
 
-from pathlib import Path
-import re
-import shutil
+while IFS= read -r ANDROID_MK; do
+    [[ -n "$ANDROID_MK" ]] || continue
 
-root = Path(".")
+    # Skip generated output and git metadata.
+    case "$ANDROID_MK" in
+        ./out/*|./.repo/*|*/out/*|*/.repo/*)
+            continue
+            ;;
+    esac
 
-patched = []
+    # Only consider files that actually contain the incompatible variable.
+    if ! grep -q "LOCAL_TARGET_REQUIRED_MODULES" "$ANDROID_MK" 2>/dev/null; then
+        continue
+    fi
 
-for path in root.rglob("Android.mk"):
-parts = set(path.parts)
+    # Identify host-side test definitions.
+    IS_HOST_TEST=false
 
-```
-# Never touch generated output or git metadata.
-if "out" in parts or ".git" in parts:
-    continue
+    if grep -q "LOCAL_MODULE_HOST_BUILD[[:space:]]*:=[[:space:]]*true" \
+        "$ANDROID_MK" 2>/dev/null; then
+        IS_HOST_TEST=true
+    fi
 
-try:
-    text = path.read_text()
-except (UnicodeDecodeError, OSError):
-    continue
+    if grep -Eq \
+        '^LOCAL_MODULE[[:space:]]*:=[[:space:]].*(HostTest|OverlayHostTests)' \
+        "$ANDROID_MK" 2>/dev/null; then
+        IS_HOST_TEST=true
+    fi
 
-if "LOCAL_TARGET_REQUIRED_MODULES" not in text:
-    continue
+    if [[ "$IS_HOST_TEST" != "true" ]]; then
+        continue
+    fi
 
-# Identify Android.mk files defining host-side tests.
-is_host_file = (
-    "LOCAL_MODULE_HOST_BUILD := true" in text
-    or "LOCAL_MODULE_HOST_BUILD := true\n" in text
-    or re.search(
-        r"(?m)^LOCAL_MODULE\s*:=\s*(?:[^\n]*HostTest[^\n]*|OverlayHostTests[^\n]*)",
-        text,
-    )
-)
+    echo
+    echo "Patching host-test build definition:"
+    echo "  ${ANDROID_MK}"
 
-if not is_host_file:
-    continue
+    BACKUP="${ANDROID_MK}.quest1-backup"
 
-new_text = text.replace(
-    "LOCAL_TARGET_REQUIRED_MODULES",
-    "LOCAL_REQUIRED_MODULES",
-)
+    if [[ ! -f "$BACKUP" ]]; then
+        cp "$ANDROID_MK" "$BACKUP"
+    fi
 
-if new_text == text:
-    continue
+    sed -i \
+        's/LOCAL_TARGET_REQUIRED_MODULES/LOCAL_REQUIRED_MODULES/g' \
+        "$ANDROID_MK"
 
-backup = path.with_name(path.name + ".quest1-backup")
+    PATCH_COUNT=$((PATCH_COUNT + 1))
+done < <(grep -R -l \
+    --include='Android.mk' \
+    "LOCAL_TARGET_REQUIRED_MODULES" \
+    . 2>/dev/null || true)
 
-if not backup.exists():
-    shutil.copy2(path, backup)
+echo
+echo "Host-test compatibility patches applied: ${PATCH_COUNT}"
 
-path.write_text(new_text)
-
-patched.append(str(path))
-print(f"Patched host-test Android.mk: {path}")
-```
-
-print()
-print(f"Patched {len(patched)} host-test Android.mk file(s).")
-
-if patched:
-print()
-print("Patched files:")
-for item in patched:
-print(f"  {item}")
-else:
-print("No host-test LOCAL_TARGET_REQUIRED_MODULES definitions found.")
-PY
-
-```
 ###########################################################################
 # Build recovery
 ###########################################################################
@@ -255,8 +244,6 @@ PY
 info "Building Quest 1 recovery"
 
 mka recoveryimage -j"${JOBS}"
-
-set -u
 
 RECOVERY_IMAGE="${TWRP_SRC}/out/target/product/monterey/recovery.img"
 
