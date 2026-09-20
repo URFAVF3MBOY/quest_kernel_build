@@ -152,7 +152,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
 if [ ! -d "$KERNEL_DIR" ]; then
   log "Cloning oculus-linux-kernel (oculus-quest-kernel-master)"
   git clone --depth 1 --branch oculus-quest-kernel-master \
-    https://github.com/URFAVF3MBOY/oculus-linux-kernel.git "$KERNEL_DIR"
+    https://github.com/URFAVF3MBOY/monterey-kernelsu-next "$KERNEL_DIR"
 fi
 if [ -n "$KERNEL_COMMIT" ]; then
   cd "$KERNEL_DIR"
