@@ -23,24 +23,24 @@ JOBS="${JOBS:-$(nproc)}"
 TARGET="${1:-twrp}"
 
 die() {
-    echo
-    echo "ERROR: $*" >&2
-    exit 1
+echo
+echo "ERROR: $*" >&2
+exit 1
 }
 
 info() {
-    echo
-    echo "============================================================"
-    echo "==> $*"
-    echo "============================================================"
+echo
+echo "============================================================"
+echo "==> $*"
+echo "============================================================"
 }
 
 case "$TARGET" in
-    twrp|lineage)
-        ;;
-    *)
-        die "Usage: $0 [twrp|lineage]"
-        ;;
+twrp|lineage)
+;;
+*)
+die "Usage: $0 [twrp|lineage]"
+;;
 esac
 
 command -v git >/dev/null 2>&1 || die "git is required"
@@ -74,178 +74,214 @@ echo "  branch: ${DEVICE_BRANCH}"
 echo
 
 if [[ "$TARGET" == "twrp" ]]; then
-    echo "Build graph:"
-    echo "  ${TWRP_MANIFEST}"
-    echo "  branch: ${TWRP_BRANCH}"
+echo "Build graph:"
+echo "  ${TWRP_MANIFEST}"
+echo "  branch: ${TWRP_BRANCH}"
 else
-    echo "Lineage manifest:"
-    echo "  ${LINEAGE_MANIFEST}"
-    echo "  branch: ${LINEAGE_BRANCH}"
-    echo
-    echo "Recovery source:"
-    echo "  ${LINEAGE_RECOVERY_REPO}"
-    echo "  branch: ${LINEAGE_RECOVERY_BRANCH}"
+echo "Lineage manifest:"
+echo "  ${LINEAGE_MANIFEST}"
+echo "  branch: ${LINEAGE_BRANCH}"
+echo
+echo "Recovery source:"
+echo "  ${LINEAGE_RECOVERY_REPO}"
+echo "  branch: ${LINEAGE_RECOVERY_BRANCH}"
 fi
 
 echo
 echo "============================================================"
 
 build_twrp() {
-    info "Preparing TWRP Android source"
+info "Preparing TWRP Android source"
 
-    mkdir -p "$BUILD_ROOT"
+```
+mkdir -p "$BUILD_ROOT"
 
-    if [[ ! -d "${TWRP_SRC}/.repo" ]]; then
-        rm -rf "$TWRP_SRC"
-        mkdir -p "$TWRP_SRC"
+if [[ ! -d "${TWRP_SRC}/.repo" ]]; then
+    rm -rf "$TWRP_SRC"
+    mkdir -p "$TWRP_SRC"
 
-        cd "$TWRP_SRC"
+    cd "$TWRP_SRC"
 
-        info "Initializing TWRP manifest"
+    info "Initializing TWRP manifest"
 
-        repo init \
-            --depth=1 \
-            -u "$TWRP_MANIFEST" \
-            -b "$TWRP_BRANCH"
-    else
-        cd "$TWRP_SRC"
-        info "Existing TWRP source tree found"
-    fi
-
-    info "Syncing TWRP source"
-
-    repo sync \
-        -c \
-        --force-sync \
-        --no-clone-bundle \
-        --no-tags \
-        -j"${JOBS}"
-
-    info "Fetching Quest 1 device tree"
-
-    DEVICE_TREE_TMP="${BUILD_ROOT}/device_oculus_monterey"
-
-    rm -rf "${DEVICE_TREE_TMP}"
-    rm -rf "${DEVICE_PATH}"
-
-    mkdir -p "$(dirname "${DEVICE_PATH}")"
-
-    git clone \
+    repo init \
         --depth=1 \
-        --branch "${DEVICE_BRANCH}" \
-        "${DEVICE_REPO}" \
-        "${DEVICE_TREE_TMP}"
+        -u "$TWRP_MANIFEST" \
+        -b "$TWRP_BRANCH"
+else
+    cd "$TWRP_SRC"
+    info "Existing TWRP source tree found"
+fi
 
-    [[ -d "${DEVICE_TREE_TMP}/device/oculus/monterey" ]] || \
-        die "TheCez device tree directory was not found in repository"
+info "Syncing TWRP source"
 
-    cp -a \
-        "${DEVICE_TREE_TMP}/device/oculus/monterey" \
-        "${DEVICE_PATH}"
+repo sync \
+    -c \
+    --force-sync \
+    --no-clone-bundle \
+    --no-tags \
+    -j"${JOBS}"
 
-    echo
-    echo "Quest device tree contents:"
-    find "${DEVICE_PATH}" -maxdepth 2 -type f | sort | head -100
-    echo
+info "Fetching Quest 1 device tree"
 
-    [[ -f "${DEVICE_PATH}/BoardConfig.mk" ]] || \
-        die "Quest BoardConfig.mk missing"
+DEVICE_TREE_TMP="${BUILD_ROOT}/device_oculus_monterey"
 
-    [[ -f "${DEVICE_PATH}/recovery.fstab" ]] || \
-        die "Quest recovery.fstab missing"
+rm -rf "${DEVICE_TREE_TMP}"
+rm -rf "${DEVICE_PATH}"
 
-    [[ -f "${DEVICE_PATH}/recovery/root/init.recovery.monterey.rc" ]] || \
-        die "Quest recovery init script missing"
+mkdir -p "$(dirname "${DEVICE_PATH}")"
 
-    info "Quest 1 device tree successfully installed"
+git clone \
+    --depth=1 \
+    --branch "${DEVICE_BRANCH}" \
+    "${DEVICE_REPO}" \
+    "${DEVICE_TREE_TMP}"
 
-    info "Loading Android build environment"
+[[ -d "${DEVICE_TREE_TMP}/device/oculus/monterey" ]] || \
+    die "TheCez device tree directory was not found in repository"
 
-    set +u
+cp -a \
+    "${DEVICE_TREE_TMP}/device/oculus/monterey" \
+    "${DEVICE_PATH}"
 
-    source build/envsetup.sh
+echo
+echo "Quest device tree contents:"
+find "${DEVICE_PATH}" -maxdepth 2 -type f | sort | head -100
+echo
 
-    info "Selecting Quest 1 recovery target"
+[[ -f "${DEVICE_PATH}/BoardConfig.mk" ]] || \
+    die "Quest BoardConfig.mk missing"
 
-    lunch omni_monterey-eng
+[[ -f "${DEVICE_PATH}/recovery.fstab" ]] || \
+    die "Quest recovery.fstab missing"
 
-    ###########################################################################
-    # Android 10 CTS compatibility fix
-    ###########################################################################
+[[ -f "${DEVICE_PATH}/recovery/root/init.recovery.monterey.rc" ]] || \
+    die "Quest recovery init script missing"
 
-    info "Applying Android 10 CTS build-graph compatibility fix"
+info "Quest 1 device tree successfully installed"
 
-    CTS_BINDING_MK="$(
-        grep -R -l \
-            "CtsAppBindingHostTestCases" \
-            cts 2>/dev/null | head -1 || true
-    )"
+info "Loading Android build environment"
 
-    if [[ -n "$CTS_BINDING_MK" ]]; then
-        echo "Found CTS definition:"
-        echo "  ${CTS_BINDING_MK}"
+set +u
 
-        cp "$CTS_BINDING_MK" "${CTS_BINDING_MK}.quest1-backup"
+source build/envsetup.sh
 
-        python3 - "$CTS_BINDING_MK" <<'PY'
-import sys
+info "Selecting Quest 1 recovery target"
+
+lunch omni_monterey-eng
+
+###########################################################################
+# Android 10 host-test build graph compatibility
+###########################################################################
+
+info "Applying Android 10 host-test build-graph compatibility fixes"
+
+python3 <<'PY'
+```
+
 from pathlib import Path
+import re
+import shutil
 
-path = Path(sys.argv[1])
-text = path.read_text()
+root = Path(".")
 
-old = "LOCAL_TARGET_REQUIRED_MODULES"
-new = "LOCAL_REQUIRED_MODULES"
+patched = []
 
-if old not in text:
-    raise SystemExit(
-        f"ERROR: {old} was not found in {path}"
+for path in root.rglob("Android.mk"):
+parts = set(path.parts)
+
+```
+# Never touch generated output or git metadata.
+if "out" in parts or ".git" in parts:
+    continue
+
+try:
+    text = path.read_text()
+except (UnicodeDecodeError, OSError):
+    continue
+
+if "LOCAL_TARGET_REQUIRED_MODULES" not in text:
+    continue
+
+# Identify Android.mk files defining host-side tests.
+is_host_file = (
+    "LOCAL_MODULE_HOST_BUILD := true" in text
+    or "LOCAL_MODULE_HOST_BUILD := true\n" in text
+    or re.search(
+        r"(?m)^LOCAL_MODULE\s*:=\s*(?:[^\n]*HostTest[^\n]*|OverlayHostTests[^\n]*)",
+        text,
     )
+)
 
-text = text.replace(old, new)
+if not is_host_file:
+    continue
 
-path.write_text(text)
+new_text = text.replace(
+    "LOCAL_TARGET_REQUIRED_MODULES",
+    "LOCAL_REQUIRED_MODULES",
+)
 
-print(f"Patched {path}")
+if new_text == text:
+    continue
+
+backup = path.with_name(path.name + ".quest1-backup")
+
+if not backup.exists():
+    shutil.copy2(path, backup)
+
+path.write_text(new_text)
+
+patched.append(str(path))
+print(f"Patched host-test Android.mk: {path}")
+```
+
+print()
+print(f"Patched {len(patched)} host-test Android.mk file(s).")
+
+if patched:
+print()
+print("Patched files:")
+for item in patched:
+print(f"  {item}")
+else:
+print("No host-test LOCAL_TARGET_REQUIRED_MODULES definitions found.")
 PY
-    else
-        echo "CTS AppBinding host-test definition not found."
-        echo "Continuing without CTS patch."
-    fi
 
-    ###########################################################################
-    # Build recovery
-    ###########################################################################
+```
+###########################################################################
+# Build recovery
+###########################################################################
 
-    info "Building Quest 1 recovery"
+info "Building Quest 1 recovery"
 
-    mka recoveryimage -j"${JOBS}"
+mka recoveryimage -j"${JOBS}"
 
-    set -u
+set -u
 
-    RECOVERY_IMAGE="${TWRP_SRC}/out/target/product/monterey/recovery.img"
+RECOVERY_IMAGE="${TWRP_SRC}/out/target/product/monterey/recovery.img"
 
-    [[ -f "$RECOVERY_IMAGE" ]] || \
-        die "TWRP build completed but recovery.img was not produced"
+[[ -f "$RECOVERY_IMAGE" ]] || \
+    die "TWRP build completed but recovery.img was not produced"
 
-    OUTPUT="${ROOT_DIR}/build/recovery/twrp"
+OUTPUT="${ROOT_DIR}/build/recovery/twrp"
 
-    rm -rf "$OUTPUT"
-    mkdir -p "$OUTPUT"
+rm -rf "$OUTPUT"
+mkdir -p "$OUTPUT"
 
-    cp "$RECOVERY_IMAGE" "$OUTPUT/recovery.img"
+cp "$RECOVERY_IMAGE" "$OUTPUT/recovery.img"
 
-    sha256sum \
-        "$OUTPUT/recovery.img" \
-        > "$OUTPUT/recovery.img.sha256"
+sha256sum \
+    "$OUTPUT/recovery.img" \
+    > "$OUTPUT/recovery.img.sha256"
 
-    DEVICE_COMMIT="$(
-        git -C "${DEVICE_TREE_TMP}" rev-parse HEAD 2>/dev/null || echo unknown
-    )"
+DEVICE_COMMIT="$(
+    git -C "${DEVICE_TREE_TMP}" rev-parse HEAD 2>/dev/null || echo unknown
+)"
 
-    cat > "$OUTPUT/build-info.txt" <<EOF
-Quest 1 Recovery Build
-======================
+cat > "$OUTPUT/build-info.txt" <<EOF
+```
+
+# Quest 1 Recovery Build
 
 Recovery:
 TWRP
@@ -281,128 +317,133 @@ Build date:
 $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 EOF
 
-    CUSTOM_KERNEL="${ROOT_DIR}/build/oculus-quest1-device-kernel/Image.gz-dtb"
+```
+CUSTOM_KERNEL="${ROOT_DIR}/build/oculus-quest1-device-kernel/Image.gz-dtb"
 
-    if [[ -f "$CUSTOM_KERNEL" ]]; then
-        echo
-        echo "Custom Quest kernel detected:"
-        echo "  $CUSTOM_KERNEL"
-        echo
-        echo "NOTE:"
-        echo "The recovery build above uses the kernel configuration defined"
-        echo "by the Quest recovery device tree."
-        echo
-        echo "Custom KernelSU kernel integration is kept separate until the"
-        echo "recovery kernel/image layout is explicitly matched."
-    fi
+if [[ -f "$CUSTOM_KERNEL" ]]; then
+    echo
+    echo "Custom Quest kernel detected:"
+    echo "  $CUSTOM_KERNEL"
+    echo
+    echo "NOTE:"
+    echo "The recovery build above uses the kernel configuration defined"
+    echo "by the Quest recovery device tree."
+    echo
+    echo "Custom KernelSU kernel integration is kept separate until the"
+    echo "recovery kernel/image layout is explicitly matched."
+fi
 
-    echo
-    echo "============================================================"
-    echo " TWRP BUILD SUCCESSFUL"
-    echo "============================================================"
-    echo
-    echo "Recovery:"
-    echo "  ${OUTPUT}/recovery.img"
-    echo
-    echo "SHA256:"
-    cat "${OUTPUT}/recovery.img.sha256"
-    echo
-    echo "Test without flashing:"
-    echo
-    echo "  fastboot boot ${OUTPUT}/recovery.img"
-    echo
-    echo "============================================================"
+echo
+echo "============================================================"
+echo " TWRP BUILD SUCCESSFUL"
+echo "============================================================"
+echo
+echo "Recovery:"
+echo "  ${OUTPUT}/recovery.img"
+echo
+echo "SHA256:"
+cat "${OUTPUT}/recovery.img.sha256"
+echo
+echo "Test without flashing:"
+echo
+echo "  fastboot boot ${OUTPUT}/recovery.img"
+echo
+echo "============================================================"
+```
+
 }
 
 prepare_lineage() {
-    info "Preparing LineageOS Android 10 source"
+info "Preparing LineageOS Android 10 source"
 
-    mkdir -p "$BUILD_ROOT"
+```
+mkdir -p "$BUILD_ROOT"
 
-    if [[ ! -d "${LINEAGE_SRC}/.repo" ]]; then
-        rm -rf "$LINEAGE_SRC"
-        mkdir -p "$LINEAGE_SRC"
+if [[ ! -d "${LINEAGE_SRC}/.repo" ]]; then
+    rm -rf "$LINEAGE_SRC"
+    mkdir -p "$LINEAGE_SRC"
 
-        cd "$LINEAGE_SRC"
+    cd "$LINEAGE_SRC"
 
-        info "Initializing LineageOS 17.1"
+    info "Initializing LineageOS 17.1"
 
-        repo init \
-            --depth=1 \
-            -u "$LINEAGE_MANIFEST" \
-            -b "$LINEAGE_BRANCH"
-    else
-        cd "$LINEAGE_SRC"
-        info "Existing LineageOS source tree found"
-    fi
-
-    info "Syncing LineageOS source"
-
-    repo sync \
-        -c \
-        --force-sync \
-        --no-clone-bundle \
-        --no-tags \
-        -j"${JOBS}"
-
-    info "Fetching Quest 1 device tree"
-
-    DEVICE_TREE_TMP="${BUILD_ROOT}/lineage_device_oculus_monterey"
-
-    rm -rf "${DEVICE_TREE_TMP}"
-    rm -rf "${DEVICE_PATH}"
-
-    mkdir -p "$(dirname "${DEVICE_PATH}")"
-
-    git clone \
+    repo init \
         --depth=1 \
-        --branch "${DEVICE_BRANCH}" \
-        "${DEVICE_REPO}" \
-        "${DEVICE_TREE_TMP}"
+        -u "$LINEAGE_MANIFEST" \
+        -b "$LINEAGE_BRANCH"
+else
+    cd "$LINEAGE_SRC"
+    info "Existing LineageOS source tree found"
+fi
 
-    [[ -d "${DEVICE_TREE_TMP}/device/oculus/monterey" ]] || \
-        die "TheCez device tree directory was not found in repository"
+info "Syncing LineageOS source"
 
-    cp -a \
-        "${DEVICE_TREE_TMP}/device/oculus/monterey" \
-        "${DEVICE_PATH}"
+repo sync \
+    -c \
+    --force-sync \
+    --no-clone-bundle \
+    --no-tags \
+    -j"${JOBS}"
 
-    [[ -f "${DEVICE_PATH}/BoardConfig.mk" ]] || \
-        die "Quest BoardConfig.mk missing"
+info "Fetching Quest 1 device tree"
 
-    [[ -d "${DEVICE_PATH}" ]] || \
-        die "Quest device tree missing"
+DEVICE_TREE_TMP="${BUILD_ROOT}/lineage_device_oculus_monterey"
 
-    info "Fetching LineageOS recovery source"
+rm -rf "${DEVICE_TREE_TMP}"
+rm -rf "${DEVICE_PATH}"
 
-    rm -rf bootable/recovery
-    mkdir -p bootable
+mkdir -p "$(dirname "${DEVICE_PATH}")"
 
-    git clone \
-        --depth=1 \
-        --branch "${LINEAGE_RECOVERY_BRANCH}" \
-        "${LINEAGE_RECOVERY_REPO}" \
-        bootable/recovery
+git clone \
+    --depth=1 \
+    --branch "${DEVICE_BRANCH}" \
+    "${DEVICE_REPO}" \
+    "${DEVICE_TREE_TMP}"
 
-    [[ -f bootable/recovery/Android.bp ]] || \
-        die "Lineage recovery Android.bp missing"
+[[ -d "${DEVICE_TREE_TMP}/device/oculus/monterey" ]] || \
+    die "TheCez device tree directory was not found in repository"
 
-    OUTPUT="${ROOT_DIR}/build/recovery/lineage-source"
+cp -a \
+    "${DEVICE_TREE_TMP}/device/oculus/monterey" \
+    "${DEVICE_PATH}"
 
-    rm -rf "$OUTPUT"
-    mkdir -p "$OUTPUT"
+[[ -f "${DEVICE_PATH}/BoardConfig.mk" ]] || \
+    die "Quest BoardConfig.mk missing"
 
-    DEVICE_COMMIT="$(
-        git -C "${DEVICE_TREE_TMP}" rev-parse HEAD 2>/dev/null || echo unknown
-    )"
+[[ -d "${DEVICE_PATH}" ]] || \
+    die "Quest device tree missing"
 
-    RECOVERY_COMMIT="$(
-        git -C bootable/recovery rev-parse HEAD 2>/dev/null || echo unknown
-    )"
+info "Fetching LineageOS recovery source"
 
-    cat > "$OUTPUT/build-info.txt" <<EOF
-Quest 1 Lineage Recovery Port
-=============================
+rm -rf bootable/recovery
+mkdir -p bootable
+
+git clone \
+    --depth=1 \
+    --branch "${LINEAGE_RECOVERY_BRANCH}" \
+    "${LINEAGE_RECOVERY_REPO}" \
+    bootable/recovery
+
+[[ -f bootable/recovery/Android.bp ]] || \
+    die "Lineage recovery Android.bp missing"
+
+OUTPUT="${ROOT_DIR}/build/recovery/lineage-source"
+
+rm -rf "$OUTPUT"
+mkdir -p "$OUTPUT"
+
+DEVICE_COMMIT="$(
+    git -C "${DEVICE_TREE_TMP}" rev-parse HEAD 2>/dev/null || echo unknown
+)"
+
+RECOVERY_COMMIT="$(
+    git -C bootable/recovery rev-parse HEAD 2>/dev/null || echo unknown
+)"
+
+cat > "$OUTPUT/build-info.txt" <<EOF
+```
+
+# Quest 1 Lineage Recovery Port
 
 Device:
 monterey
@@ -441,33 +482,36 @@ Prepared:
 $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 EOF
 
-    echo
-    echo "============================================================"
-    echo " LINEAGE RECOVERY SOURCE PREPARED"
-    echo "============================================================"
-    echo
-    echo "Source:"
-    echo "  ${LINEAGE_SRC}"
-    echo
-    echo "Recovery source:"
-    echo "  ${LINEAGE_SRC}/bootable/recovery"
-    echo
-    echo "Quest device tree:"
-    echo "  ${LINEAGE_SRC}/${DEVICE_PATH}"
-    echo
-    echo "No fake recovery.img was produced."
-    echo
-    echo "The remaining port is the Quest-specific Lineage Recovery"
-    echo "product configuration."
-    echo
-    echo "============================================================"
+```
+echo
+echo "============================================================"
+echo " LINEAGE RECOVERY SOURCE PREPARED"
+echo "============================================================"
+echo
+echo "Source:"
+echo "  ${LINEAGE_SRC}"
+echo
+echo "Recovery source:"
+echo "  ${LINEAGE_SRC}/bootable/recovery"
+echo
+echo "Quest device tree:"
+echo "  ${LINEAGE_SRC}/${DEVICE_PATH}"
+echo
+echo "No fake recovery.img was produced."
+echo
+echo "The remaining port is the Quest-specific Lineage Recovery"
+echo "product configuration."
+echo
+echo "============================================================"
+```
+
 }
 
 case "$TARGET" in
-    twrp)
-        build_twrp
-        ;;
-    lineage)
-        prepare_lineage
-        ;;
+twrp)
+build_twrp
+;;
+lineage)
+prepare_lineage
+;;
 esac
