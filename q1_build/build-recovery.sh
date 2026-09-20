@@ -310,9 +310,20 @@ build_twrp() {
     [[ -f "${board_config}" ]] || \
         die "BoardConfig.mk missing: ${board_config}"
 
+    ###########################################################################
+    # Keep the backup OUTSIDE the device tree directory. Previously it was
+    # written alongside BoardConfig.mk as BoardConfig.mk.quest1-original,
+    # which meant the later "stale reference" scan (which greps the whole
+    # device tree directory) found the old path inside our own backup file
+    # and failed the build on a false positive. Storing it under BUILD_ROOT
+    # keeps a copy for reference without it being part of the tree we scan.
+    ###########################################################################
+
+    local board_config_backup="${BUILD_ROOT}/BoardConfig.mk.quest1-original"
+
     cp -f \
         "${board_config}" \
-        "${board_config}.quest1-original"
+        "${board_config_backup}"
 
     ###########################################################################
     # Remove existing prebuilt-kernel definitions.
@@ -378,7 +389,8 @@ EOF
     # Check the entire Quest device tree for the stale kernel component.
     #
     # We do this after modifying BoardConfig.mk because the old reference may
-    # theoretically live in another .mk file.
+    # theoretically live in another .mk file. The backup copy lives outside
+    # DEVICE_PATH now (see above), so it can't cause a false positive here.
     ###########################################################################
 
     info "Checking for stale TheCez kernel references"
