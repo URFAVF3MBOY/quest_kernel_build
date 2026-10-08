@@ -2,6 +2,14 @@ name: Quest 1 KernelSU Build
 
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: "KernelSU flavour to build in"
+        type: choice
+        default: next
+        options:
+          - next   # KernelSU-Next (as shipped in the kernel fork)
+          - ksu    # original tiann/KernelSU v0.9.5
 
 jobs:
   build:
@@ -16,18 +24,17 @@ jobs:
         env:
           # Keep the real Quest kernel's verity workaround.
           VERITY_BYPASS: "1"
-
-          # Device kernel only — don't waste time building QEMU/Buildroot.
           KERNEL_COMMIT: ""
+          KSU_VARIANT: ${{ inputs.variant }}
 
         run: |
           chmod +x kernelsu.sh
-          KSU=1 ./kernelsu.sh device-only
+          KSU=1 ./kernelsu.sh
 
       - name: Upload Quest 1 kernel
         uses: actions/upload-artifact@v4
         with:
-          name: quest1-kernel
+          name: quest1-kernel-${{ inputs.variant }}
           path: |
             q1_build/build/oculus-quest1-device-kernel/Image
             q1_build/build/oculus-quest1-device-kernel/Image.gz-dtb

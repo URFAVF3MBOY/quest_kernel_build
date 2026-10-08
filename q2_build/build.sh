@@ -6,6 +6,10 @@
 #   Put your kernel.config next to this script, then:
 #     ./build.sh
 #
+#   To build with KernelSU (see the KSU section below):
+#     KSU=1 ./build.sh                    # KernelSU-Next (default variant)
+#     KSU=1 KSU_VARIANT=ksu ./build.sh    # original tiann/KernelSU v0.9.5
+#
 #   To also get an image you can actually boot on the headset, drop a stock
 #   boot.img pulled from that headset next to this script (or point
 #   REAL_BOOT_IMG at one) - step 5b repacks it around the new kernel:
@@ -73,6 +77,54 @@ VERITY_BYPASS="${VERITY_BYPASS:-1}"
 # (androidboot.hardware, etc.) that must survive, so it is edited rather
 # than replaced. Any non-empty value here wins and is used verbatim.
 KERNEL_CMDLINE="${KERNEL_CMDLINE-}"
+
+# --- Optional: KernelSU / KernelSU-Next --------------------------------------
+# KSU=1 integrates a KernelSU flavour into the tree and builds it in
+# (CONFIG_KSU=y). Off by default so the baseline build stays byte-for-byte what
+# it was. KSU_VARIANT picks the flavour:
+#
+#   KSU_VARIANT=next (default) - KernelSU-Next, `legacy` branch, pinned.
+#       This is a 4.19 non-GKI kernel. KernelSU-Next offers three hook modes:
+#         - KSU_KPROBES_HOOK       Kconfig help: "should not be used on kernel
+#                                  below 5.10" (tracepoint + kretprobe).
+#         - KSU_MANUAL_HOOK        needs hand-patching exec.c/open.c/...
+#         - KSU_SYSCALL_TABLE_HOOK patches the arm64 sys_call_table at runtime;
+#                                  its help text targets non-GKI kernels >= 4.17.
+#       The syscall-table mode needs no source patches to the Oculus tree and
+#       fits 4.19.x, so that is what is used. It resolves symbols at runtime
+#       via kallsyms (CONFIG_KALLSYMS_ALL=y is already set in kernel.config).
+#       Needs kernelsu-q2-compat.patch (strscpy_pad missing on this tree).
+#
+#   KSU_VARIANT=ksu - original tiann/KernelSU, tag v0.9.5.
+#       Current mainline KernelSU (v2.x/v3.x) is GKI-only and does not build
+#       on 4.19 (selinux_state internals, fsnotify, file_operations, ...).
+#       v0.9.5 is the last release line that still supports non-GKI kernels;
+#       it hooks execve/read/input via kprobes (CONFIG_KPROBES=y here) and
+#       builds on this tree unmodified. Use a manager APK from the same era
+#       (v0.9.x) - newer managers will not speak this kernel's protocol.
+#
+# Both are pinned to a commit for reproducibility; override KSU_REF to move it.
+KSU="${KSU:-0}"
+KSU_VARIANT="${KSU_VARIANT:-next}"
+case "$KSU_VARIANT" in
+  next)
+    KSU_NAME="KernelSU-Next"
+    KSU_REPO="${KSU_REPO:-https://github.com/KernelSU-Next/KernelSU-Next.git}"
+    KSU_BRANCH="${KSU_BRANCH:-legacy}"
+    KSU_REF="${KSU_REF:-8869bd768d6650198810f2395c2762fabefc8557}"
+    ;;
+  ksu)
+    KSU_NAME="KernelSU"
+    KSU_REPO="${KSU_REPO:-https://github.com/tiann/KernelSU.git}"
+    KSU_BRANCH="${KSU_BRANCH:-}"   # v0.9.5 is a tag, not a branch tip
+    KSU_REF="${KSU_REF:-b766b98513b5a7eb33bc1c4a76b5702bf1288f07}"   # v0.9.5
+    ;;
+  *)
+    echo "ERROR: KSU_VARIANT must be 'next' or 'ksu' (got '$KSU_VARIANT')" >&2
+    exit 1
+    ;;
+esac
+KSU_DIRNAME="$KSU_NAME"
 
 log() { echo -e "\n=== $* ===\n"; }
 
@@ -161,11 +213,89 @@ else
   exit 1
 fi
 
+# --- 4b. KernelSU integration (KSU=1 only) -----------------------------------
+# Same layout KernelSU's own setup.sh produces: the repo lives next to the
+# kernel tree's drivers/, drivers/kernelsu is a symlink to its kernel/
+# directory, and drivers/Makefile + drivers/Kconfig each get one line.
+# Every step is idempotent so re-running over an already-prepared tree is fine.
+if [ "$KSU" = "1" ]; then
+  log "KSU=1: integrating $KSU_NAME (variant=$KSU_VARIANT @ ${KSU_REF:0:12})"
+  KSU_DIR="$KERNEL_DIR/$KSU_DIRNAME"
+
+  if [ ! -d "$KSU_DIR/.git" ]; then
+    # Full history on purpose: both flavours derive their reported version from
+    # `git rev-list --count HEAD`, which is wrong on a shallow clone.
+    git clone ${KSU_BRANCH:+--branch "$KSU_BRANCH"} "$KSU_REPO" "$KSU_DIR"
+  fi
+  git -C "$KSU_DIR" fetch --no-tags origin ${KSU_BRANCH:+"$KSU_BRANCH"}
+  git -C "$KSU_DIR" checkout --detach -f "$KSU_REF"   # -f drops our own compat patch from a previous run; it is re-applied below
+  if [ "$(git -C "$KSU_DIR" rev-parse HEAD)" != "$KSU_REF" ]; then
+    echo "ERROR: $KSU_NAME is not at the pinned commit $KSU_REF" >&2
+    exit 1
+  fi
+
+  if [ "$KSU_VARIANT" = "next" ]; then
+    # Small compat fix for this 4.19.325 tree (kernelsu-q2-compat.patch): the
+    # pinned KernelSU-Next assumes strscpy_pad() exists from 4.14.222 on, but
+    # this kernel does not have it, so every kernelsu object fails to compile
+    # (implicit declaration of function 'strscpy_pad'). The patch only moves
+    # that version gate so the strscpy()+memset() fallback is used instead.
+    if git -C "$KSU_DIR" apply --check "$WORK_DIR/kernelsu-q2-compat.patch" 2>/dev/null; then
+      git -C "$KSU_DIR" apply "$WORK_DIR/kernelsu-q2-compat.patch"
+    elif git -C "$KSU_DIR" apply --check --reverse "$WORK_DIR/kernelsu-q2-compat.patch" 2>/dev/null; then
+      echo "kernelsu-q2-compat.patch already applied, skipping."
+    else
+      echo "ERROR: kernelsu-q2-compat.patch does not apply to $KSU_NAME @ $KSU_REF" >&2
+      exit 1
+    fi
+  fi
+
+  ln -sfn "../$KSU_DIRNAME/kernel" "$KERNEL_DIR/drivers/kernelsu"
+  grep -q 'kernelsu' "$KERNEL_DIR/drivers/Makefile" || \
+    printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$KERNEL_DIR/drivers/Makefile"
+  grep -q 'drivers/kernelsu/Kconfig' "$KERNEL_DIR/drivers/Kconfig" || \
+    sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' "$KERNEL_DIR/drivers/Kconfig"
+
+  test -f "$KERNEL_DIR/drivers/kernelsu/Kconfig" || { echo "ERROR: drivers/kernelsu symlink does not resolve" >&2; exit 1; }
+  grep -n 'kernelsu' "$KERNEL_DIR/drivers/Makefile" "$KERNEL_DIR/drivers/Kconfig"
+fi
+
 # --- 5. Build the real Quest 2 device kernel -------------------------------
 log "Building real-device kernel (your kernel.config)"
 cp "$KERNEL_CONFIG" .config
 sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
+if [ "$KSU" = "1" ]; then
+  # Written before olddefconfig, which keeps what is already in .config and
+  # only fills in what is missing, so the explicit "is not set" lines survive.
+  # KPROBES/KALLSYMS_ALL/OVERLAY_FS are already =y in kernel.config.
+  log "KSU=1: adding $KSU_NAME config fragment"
+  echo "CONFIG_KSU=y" >> .config
+  echo "# CONFIG_KSU_DEBUG is not set" >> .config
+  if [ "$KSU_VARIANT" = "next" ]; then
+    cat >> .config << 'KSUCFG'
+# CONFIG_KSU_MANUAL_HOOK is not set
+# CONFIG_KSU_KPROBES_HOOK is not set
+CONFIG_KSU_SYSCALL_TABLE_HOOK=y
+KSUCFG
+  fi
+fi
 make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" olddefconfig
+
+# Fail early (before an hour of compiling) if Kconfig silently dropped KSU or
+# picked a different hook mode, and make sure a baseline build is really clean.
+if [ "$KSU" = "1" ]; then
+  KSU_EXPECT="CONFIG_KSU=y CONFIG_KPROBES=y CONFIG_OVERLAY_FS=y"
+  [ "$KSU_VARIANT" = "next" ] && KSU_EXPECT="$KSU_EXPECT CONFIG_KSU_SYSCALL_TABLE_HOOK=y"
+  for opt in $KSU_EXPECT; do
+    grep -qx "$opt" .config || { echo "ERROR: $opt missing from final .config" >&2; grep -E '^(# )?CONFIG_KSU' .config >&2 || true; exit 1; }
+  done
+  echo "KernelSU config:"; grep -E '^CONFIG_KSU' .config
+else
+  if grep -qE '^CONFIG_KSU=[ym]' .config; then
+    echo "ERROR: CONFIG_KSU is enabled in a KSU=0 build" >&2
+    exit 1
+  fi
+fi
 
 make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" \
   -j"$(nproc)" Image dtbs
@@ -181,6 +311,14 @@ if [ -f arch/arm64/boot/Image.gz-dtb ]; then
   cp arch/arm64/boot/Image.gz-dtb "$OUT_DEVICE/Image.gz-dtb"
 fi
 cp vmlinux "$OUT_DEVICE/vmlinux"
+if [ "$KSU" = "1" ]; then
+  log "Verifying $KSU_NAME was compiled into vmlinux"
+  if ! nm vmlinux | grep -q ' [tT] ksu_'; then
+    echo "ERROR: CONFIG_KSU=y but no ksu_* symbols found in vmlinux" >&2
+    exit 1
+  fi
+  nm vmlinux | grep -E ' [tT] ksu_' | head -40
+fi
 cp System.map "$OUT_DEVICE/System.map"
 cp .config "$OUT_DEVICE/.config"
 find arch/arm64/boot/dts -iname "*.dtb" -exec cp {} "$OUT_DEVICE/dtbs/" \;

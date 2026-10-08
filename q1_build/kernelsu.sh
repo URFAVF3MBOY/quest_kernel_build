@@ -1,18 +1,19 @@
 #!/bin/bash
-# Reproduces: cross-compiling oculus-linux-kernel (oculus-quest-kernel-master)
-# for real Quest 1 hardware from a supplied kernel.config, plus a QEMU-bootable
-# variant of the same tree booted under qemu-system-aarch64 with a Buildroot
-# rootfs. See README-REPRODUCE.md for the *why* behind every step here.
+# Cross-compiles oculus-linux-kernel (oculus-quest-kernel-master) for real
+# Quest 1 hardware from a supplied kernel.config, optionally with KernelSU-Next
+# (KSU=1). See README-REPRODUCE.md for the *why* behind every step here.
 #
 # Usage:
 #   Put your kernel.config next to this script, then:
-#     ./build.sh                 # do everything
-#     ./build.sh device-only     # only build the real-device kernel
+#     KSU=1 ./kernelsu.sh        # build with KernelSU-Next (what the fork ships)
+#     KSU=1 KSU_VARIANT=ksu ./kernelsu.sh   # swap in original tiann/KernelSU v0.9.5
+#     ./kernelsu.sh              # baseline build (CONFIG_KSU must be off)
+#   (a legacy "device-only" argument is still accepted and ignored)
 #
 #   To also get an image you can actually boot on the headset, drop a stock
 #   boot.img pulled from that headset next to this script (or point
 #   REAL_BOOT_IMG at one) - step 5b repacks it around the new kernel:
-#     REAL_BOOT_IMG=/path/to/boot.img ./build.sh device-only
+#     REAL_BOOT_IMG=/path/to/boot.img KSU=1 ./kernelsu.sh
 #     fastboot boot build/oculus-quest1-device-kernel/boot-repacked.img
 #   `fastboot boot` is one-shot and non-destructive; it does not write the
 #   boot partition. Never `fastboot flash boot` a kernel built here.
@@ -26,9 +27,7 @@ KERNEL_DIR="$WORK_DIR/oculus-linux-kernel"
 TOOLCHAIN_DIR="$WORK_DIR/toolchain"
 AARCH64_GCC="$TOOLCHAIN_DIR/aarch64-linux-android-4.9"
 ARM_GCC="$TOOLCHAIN_DIR/arm-linux-androideabi-4.9"
-BUILDROOT_DIR="$WORK_DIR/buildroot"
 BUILD_DIR="$WORK_DIR/build"
-MODE="${1:-all}"
 # Pin to a specific commit instead of tracking branch HEAD. Empty = branch
 # HEAD (whatever oculus-quest-kernel-master currently points at). Tested:
 # building from a commit close to a real device's actual build date vs.
@@ -78,6 +77,24 @@ REAL_BOOT_IMG="${REAL_BOOT_IMG:-$WORK_DIR/boot.img}"
 VERITY_BYPASS="${VERITY_BYPASS:-1}"
 KGDB="${KGDB:-${KGDB_USB:-0}}"
 KSU="${KSU:-0}"
+
+# KSU_VARIANT picks which KernelSU flavour is built when KSU=1:
+#   next (default) - KernelSU-Next, exactly as integrated in the kernel fork.
+#   ksu            - original tiann/KernelSU, tag v0.9.5. The fork's tree is
+#                    switched over at build time: drivers/kernelsu is repointed
+#                    at a fresh KernelSU checkout and ksu-vanilla-hooks.patch is
+#                    applied (see that file / the step 4b comment below).
+# Why v0.9.5: current mainline KernelSU is GKI-only; v0.9.5 is the last line
+# that still supports old non-GKI kernels, and it handles 4.4 natively (its
+# core_hook.c has the < 4.10 key_permission path and LSM hook registration, so
+# no kprobes are needed - this kernel has CONFIG_KPROBES unset).
+KSU_VARIANT="${KSU_VARIANT:-next}"
+KSU_VANILLA_REPO="${KSU_VANILLA_REPO:-https://github.com/tiann/KernelSU.git}"
+KSU_VANILLA_REF="${KSU_VANILLA_REF:-b766b98513b5a7eb33bc1c4a76b5702bf1288f07}"   # v0.9.5
+case "$KSU_VARIANT" in
+  next|ksu) ;;
+  *) echo "ERROR: KSU_VARIANT must be 'next' or 'ksu' (got '$KSU_VARIANT')" >&2; exit 1 ;;
+esac
 
 # KGDB=1 only: disable the watchdogs, so the CPUs can stay stopped.
 #
@@ -146,7 +163,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   build-essential bc bison flex libssl-dev libelf-dev \
   gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
   git wget cpio unzip rsync kmod device-tree-compiler python3-dev make \
-  libncurses-dev qemu-system-arm qemu-efi-aarch64 gcc-12 g++-12 mkbootimg
+  libncurses-dev gcc-12 g++-12 mkbootimg
 
 # --- 2. Kernel source -----------------------------------------------------
 if [ ! -d "$KERNEL_DIR" ]; then
@@ -215,6 +232,52 @@ EOF
 # Note: the patch already removed "obj-y += internal/" from
 # drivers/staging/oculus/Makefile, so no Makefile stub is needed here.
 
+# --- 4b. KSU_VARIANT=ksu: swap KernelSU-Next for original KernelSU ----------
+# The fork ships KernelSU-Next in-tree (KernelSU-Next/ + the drivers/kernelsu
+# symlink + manual hooks in fs/ and kernel/reboot.c + an SELinux NNP exception
+# in security/selinux/hooks.c). Original KernelSU v0.9.5 uses the same hook
+# sites (execveat, faccessat, stat, read) but differs in three ways, which
+# ksu-vanilla-hooks.patch handles:
+#   - it has no reboot-syscall hook, so the ksu_handle_sys_reboot call is
+#     removed from kernel/reboot.c (it would be an undefined symbol);
+#   - its root domain is u:r:su:s0, not u:r:ksu:s0, so the init->root NNP
+#     exception in security/selinux/hooks.c is pointed at the right domain;
+#   - it wants an input hook (safe mode / volume-key detection) in
+#     drivers/input/input.c.
+# This must run AFTER the oculus-kernel-fixes.patch step above: that step skips
+# itself when the tree already has local modifications.
+if [ "$KSU" = "1" ] && [ "$KSU_VARIANT" = "ksu" ]; then
+  log "KSU_VARIANT=ksu: switching the tree to original KernelSU (${KSU_VANILLA_REF:0:12})"
+  KSU_DIR="$KERNEL_DIR/KernelSU"
+  if [ ! -d "$KSU_DIR/.git" ]; then
+    # Full history on purpose: the version number comes from `git rev-list --count`.
+    git clone "$KSU_VANILLA_REPO" "$KSU_DIR"
+  fi
+  git -C "$KSU_DIR" checkout --detach -f "$KSU_VANILLA_REF"
+  if [ "$(git -C "$KSU_DIR" rev-parse HEAD)" != "$KSU_VANILLA_REF" ]; then
+    echo "ERROR: KernelSU is not at the pinned commit $KSU_VANILLA_REF" >&2
+    exit 1
+  fi
+
+  if git apply --check "$WORK_DIR/ksu-vanilla-hooks.patch" 2>/dev/null; then
+    git apply "$WORK_DIR/ksu-vanilla-hooks.patch"
+  elif git apply --check --reverse "$WORK_DIR/ksu-vanilla-hooks.patch" 2>/dev/null; then
+    echo "ksu-vanilla-hooks.patch already applied, skipping."
+  else
+    echo "ERROR: ksu-vanilla-hooks.patch does not apply to this kernel source." >&2
+    echo "       It was written against the fork's oculus-quest-kernel-master @ 1a5f2ec;" >&2
+    echo "       if the fork changed the hook sites, regenerate the patch." >&2
+    exit 1
+  fi
+
+  ln -sfn ../KernelSU/kernel drivers/kernelsu
+  test -f drivers/kernelsu/Kconfig || { echo "ERROR: drivers/kernelsu symlink does not resolve" >&2; exit 1; }
+  if grep -q '^config KSU_MANUAL_HOOK' drivers/kernelsu/Kconfig; then
+    echo "ERROR: drivers/kernelsu still points at KernelSU-Next" >&2
+    exit 1
+  fi
+fi
+
 # KGDB=1: register a private struct kgdb_io driving the USB gadget's bulk
 # endpoints. Separate from oculus-kernel-fixes.patch because it is
 # opt-in and self-checking (anchor-verified and idempotent), so it can be
@@ -265,7 +328,11 @@ fi
 if [ "$KSU" = "1" ]; then
 
     echo
-    echo "=== Building WITH KernelSU-Next ==="
+    if [ "$KSU_VARIANT" = "ksu" ]; then
+        echo "=== Building WITH KernelSU (original, v0.9.5) ==="
+    else
+        echo "=== Building WITH KernelSU-Next ==="
+    fi
     echo
 
     echo "Enabling KernelSU..."
@@ -332,7 +399,12 @@ nm vmlinux | grep -E 'ksu_handle_|ksu_vfs_read_hook|ksu_execve|ksu_' | head -100
 
 echo
 echo "KernelSU source/object files:"
-find kernel -maxdepth 2 -type f \( -name 'ksud.c' -o -name 'ksud.o' \) -print
+find -L drivers/kernelsu -maxdepth 2 -type f \( -name 'ksud.c' -o -name 'ksud.o' \) -print
+
+if [ "$KSU" = "1" ] && ! nm vmlinux | grep -q ' [tT] ksu_'; then
+  echo "ERROR: CONFIG_KSU=y but no ksu_* symbols found in vmlinux" >&2
+  exit 1
+fi
 
 cp System.map "$OUT_DEVICE/System.map"
 cp .config "$OUT_DEVICE/.config"
@@ -437,191 +509,8 @@ else
   echo "to also get a fastboot-bootable image."
 fi
 
-if [ "$MODE" = "device-only" ]; then
-  log "device-only mode requested, stopping here"
-  exit 0
-fi
-
-# --- 6. Build the QEMU-bootable variant ------------------------------------
-log "Building QEMU-bootable kernel variant"
-cp "$KERNEL_CONFIG" .config
-sed -i 's/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/CONFIG_SYSTEM_TRUSTED_KEYS=""/' .config
-cat >> .config << 'EOF'
-CONFIG_DEVTMPFS=y
-CONFIG_DEVTMPFS_MOUNT=y
-CONFIG_SERIAL_AMBA_PL011=y
-CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
-CONFIG_PCI_HOST_GENERIC=y
-CONFIG_VIRTIO=y
-CONFIG_VIRTIO_PCI=y
-CONFIG_VIRTIO_MMIO=y
-CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
-CONFIG_VIRTIO_BLK=y
-CONFIG_VIRTIO_NET=y
-CONFIG_VIRTIO_CONSOLE=y
-CONFIG_HW_RANDOM_VIRTIO=y
-CONFIG_9P_FS=y
-CONFIG_NET_9P=y
-CONFIG_NET_9P_VIRTIO=y
-EOF
-make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
-# Disable real-hardware-only Qualcomm SMC/TrustZone calls that crash or hang
-# under QEMU (no real Qualcomm secure-monitor firmware exists there).
-sed -i \
-  -e 's/^CONFIG_QCOM_EARLY_RANDOM=y/# CONFIG_QCOM_EARLY_RANDOM is not set/' \
-  -e 's/^CONFIG_MSM_APM=y/# CONFIG_MSM_APM is not set/' \
-  -e 's/^CONFIG_QCOM_SCM=y/# CONFIG_QCOM_SCM is not set/' \
-  -e 's/^CONFIG_QCOM_SCM_64=y/# CONFIG_QCOM_SCM_64 is not set/' \
-  -e 's/^CONFIG_MSM_PM=y/# CONFIG_MSM_PM is not set/' \
-  -e 's/^CONFIG_MSM_IPC_ROUTER_SMD_XPRT=y/# CONFIG_MSM_IPC_ROUTER_SMD_XPRT is not set/' \
-  -e 's/^CONFIG_MSM_IPC_ROUTER_GLINK_XPRT=y/# CONFIG_MSM_IPC_ROUTER_GLINK_XPRT is not set/' \
-  .config
-make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
-make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-  HOSTCFLAGS="-fcommon" -j"$(nproc)" Image
-
-mkdir -p "$BUILD_DIR/qemu-kernel"
-cp arch/arm64/boot/Image "$BUILD_DIR/qemu-kernel/Image"
-cp vmlinux "$BUILD_DIR/qemu-kernel/vmlinux"
-cp System.map "$BUILD_DIR/qemu-kernel/System.map"
-cp .config "$BUILD_DIR/qemu-kernel/.config"
-log "QEMU-variant kernel saved to $BUILD_DIR/qemu-kernel/Image"
-
-# --- 6b. Fix QEMU's device tree so the PL011/PL061/PL031 AMBA devices
-# actually bind (see README-REPRODUCE.md: this kernel's active clock
-# provider, COMMON_CLK_MSM, can never resolve QEMU's generic DT
-# "fixed-clock" phandle, so amba_device_add() defers those three devices
-# forever without this). Dump QEMU's default virt DT, then set the
-# standard ARM PrimeCell peripheral ID on each node directly (fdtput),
-# which makes amba_device_add() skip its clock-based ID auto-detection
-# entirely.
-log "Patching QEMU's device tree (AMBA PrimeCell ID override)"
-qemu-system-aarch64 -M virt,dumpdtb="$BUILD_DIR/qemu-kernel/virt.dtb" -cpu cortex-a72 \
-  -m 4096 -nographic -smp 8 -kernel "$BUILD_DIR/qemu-kernel/Image" -no-reboot \
-  < /dev/null > /dev/null 2>&1 || true
-fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl011@9000000 arm,primecell-periphid 0x00041011
-fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl061@9030000 arm,primecell-periphid 0x00041061
-fdtput -t x "$BUILD_DIR/qemu-kernel/virt.dtb" /pl031@9010000 arm,primecell-periphid 0x00041031
-
-# --- 7. Buildroot rootfs ----------------------------------------------------
-log "Setting up Buildroot"
-if [ ! -d "$BUILDROOT_DIR" ]; then
-  git clone --depth 1 --branch 2024.02.x https://github.com/buildroot/buildroot.git "$BUILDROOT_DIR"
-fi
-
-cat > "$BUILDROOT_DIR/configs/oculus_qemu_defconfig" << 'EOF'
-# Architecture
-BR2_aarch64=y
-BR2_cortex_a53=y
-
-# System
-BR2_SYSTEM_DHCP="eth0"
-BR2_TARGET_GENERIC_GETTY=y
-BR2_TARGET_GENERIC_GETTY_PORT="ttyAMA0"
-
-# Filesystem
-BR2_TARGET_ROOTFS_EXT2=y
-BR2_TARGET_ROOTFS_EXT2_4=y
-# BR2_TARGET_ROOTFS_TAR is not set
-
-# Linux headers: kernel we're pairing with is a real device's 4.4 tree;
-# use closest available fixed header series rather than building our own.
-BR2_KERNEL_HEADERS_4_19=y
-
-# We build our own kernel outside Buildroot (oculus-linux-kernel), so
-# don't have Buildroot build/manage a kernel.
-# BR2_LINUX_KERNEL is not set
-
-# host-qemu not needed, qemu-system-aarch64 is already installed on the host
-# BR2_PACKAGE_HOST_QEMU is not set
-EOF
-
-cd "$BUILDROOT_DIR"
-make oculus_qemu_defconfig
-
-# WSL/Windows PATH entries (e.g. "Program Files") contain spaces, which
-# Buildroot's dependency check rejects outright. Also: GCC 15 default
-# -Werror=implicit-function-declaration breaks host-m4's gnulib code
-# (a GCC-14+ regression for old code) — build host tools with gcc-12 instead.
-CLEAN_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
-PATH="$CLEAN_PATH" make -j"$(nproc)" HOSTCC=gcc-12 HOSTCXX=g++-12
-
-log "Buildroot rootfs built: $BUILDROOT_DIR/output/images/rootfs.ext4"
-
-# --- 8. Fix the rootfs inittab for a working boot ---------------------------
-log "Patching rootfs inittab (busybox-init multi-sysinit-line hang workaround)"
-ROOTFS="$BUILDROOT_DIR/output/images/rootfs.ext4"
-MNT="$(mktemp -d)"
-sudo mount -o loop "$ROOTFS" "$MNT"
-
-sudo tee "$MNT/etc/init.d/rc.sysinit" > /dev/null << 'EOF'
-#!/bin/sh
-# PID 1's stdio is unusable: the kernel's own /dev/console auto-open at
-# boot runs before devtmpfs is mounted, so it silently fails and nothing
-# in the boot chain inherits a working stdin/stdout/stderr. Point this
-# script's output at the kernel log ring buffer instead, which is always
-# writable, so boot progress stays visible.
-exec 2>/dev/kmsg
-
-mkdir -p /dev/pts /dev/shm
-mount -a
-mkdir -p /run/lock/subsys
-swapon -a
-ln -sf /proc/self/fd /dev/fd
-ln -sf /proc/self/fd/0 /dev/stdin
-ln -sf /proc/self/fd/1 /dev/stdout
-ln -sf /proc/self/fd/2 /dev/stderr
-hostname -F /etc/hostname
-/etc/init.d/rcS
-EOF
-sudo chmod +x "$MNT/etc/init.d/rc.sysinit"
-
-sudo tee "$MNT/etc/inittab" > /dev/null << 'EOF'
-# /etc/inittab
-::sysinit:/bin/mount -t proc proc /proc
-::sysinit:/bin/mount -o remount,rw /
-::sysinit:/etc/init.d/rc.sysinit
-
-# Put a getty on the serial port
-ttyAMA0::respawn:/sbin/getty -L  ttyAMA0 0 vt100 # GENERIC_SERIAL
-
-::shutdown:/etc/init.d/rcK
-::shutdown:/sbin/swapoff -a
-::shutdown:/bin/umount -a -r
-EOF
-
-sync
-sudo umount "$MNT"
-rmdir "$MNT"
-
-# --- 9. Run script -----------------------------------------------------
-mkdir -p "$BUILD_DIR"
-cat > "$BUILD_DIR/run_qemu.sh" << EOF
-#!/bin/bash
-# Boot the QEMU-bootable Oculus Quest 1 kernel variant with the Buildroot
-# rootfs under qemu-system-aarch64 (virt board).
-#
-# Run this in a real interactive terminal for a usable login prompt.
-# Login: root (no password). Quit: Ctrl-A then X.
-set -e
-cd "\$(dirname "\$0")"
-exec qemu-system-aarch64 -M virt -cpu cortex-a72 -m 4096 -nographic -smp 8 \\
-  -kernel qemu-kernel/Image \\
-  -dtb qemu-kernel/virt.dtb \\
-  -append "earlycon rootwait root=/dev/vda console=ttyAMA0" \\
-  -netdev user,id=eth0 -device virtio-net-device,netdev=eth0 \\
-  -drive file=$BUILDROOT_DIR/output/images/rootfs.ext4,if=none,format=raw,id=hd0 \\
-  -device virtio-blk-device,drive=hd0 \\
-  -device virtio-rng-device \\
-  -no-reboot
-EOF
-chmod +x "$BUILD_DIR/run_qemu.sh"
-
 log "Done."
 echo "Real Quest 1 kernel:  $OUT_DEVICE/"
 if [ -f "${NEW_BOOT_IMG:-}" ]; then
   echo "Repacked boot.img:    $NEW_BOOT_IMG   (fastboot boot \"$NEW_BOOT_IMG\")"
 fi
-echo "QEMU-variant kernel:  $BUILD_DIR/qemu-kernel/Image"
-echo "Buildroot rootfs:     $BUILDROOT_DIR/output/images/rootfs.ext4"
-echo "Run under QEMU:       $BUILD_DIR/run_qemu.sh"

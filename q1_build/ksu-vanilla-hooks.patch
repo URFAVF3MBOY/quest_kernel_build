@@ -1,0 +1,65 @@
+diff --git a/drivers/input/input.c b/drivers/input/input.c
+index 85791708..ad5039d8 100644
+--- a/drivers/input/input.c
++++ b/drivers/input/input.c
+@@ -368,11 +368,21 @@ static int input_get_disposition(struct input_dev *dev,
+ 	return disposition;
+ }
+ 
++#ifdef CONFIG_KSU
++extern bool ksu_input_hook __read_mostly;
++extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
++#endif
++
+ static void input_handle_event(struct input_dev *dev,
+ 			       unsigned int type, unsigned int code, int value)
+ {
+ 	int disposition;
+ 
++#ifdef CONFIG_KSU
++	if (unlikely(ksu_input_hook))
++		ksu_handle_input_handle_event(&type, &code, &value);
++#endif
++
+ 	disposition = input_get_disposition(dev, type, code, &value);
+ 
+ 	if ((disposition & INPUT_PASS_TO_DEVICE) && dev->event)
+diff --git a/kernel/reboot.c b/kernel/reboot.c
+index bdf21c9c..bd30a973 100644
+--- a/kernel/reboot.c
++++ b/kernel/reboot.c
+@@ -17,10 +17,6 @@
+ #include <linux/syscore_ops.h>
+ #include <linux/uaccess.h>
+ 
+-#ifdef CONFIG_KSU
+-extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+-#endif
+-
+ /*
+  * this indicates whether you can reboot with ctrl-alt-del: the default is yes
+  */
+@@ -288,10 +284,6 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+ 	char buffer[256];
+ 	int ret = 0;
+ 
+-#ifdef CONFIG_KSU
+-	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+-#endif
+-
+ 	/* We only trust the superuser with rebooting the system. */
+ 	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
+ 		return -EPERM;
+diff --git a/security/selinux/hooks.c b/security/selinux/hooks.c
+index 135db47a..174e9a4e 100644
+--- a/security/selinux/hooks.c
++++ b/security/selinux/hooks.c
+@@ -2194,7 +2194,7 @@ static int check_nnp_nosuid(const struct linux_binprm *bprm,
+ 		return 0; /* No change in credentials */
+ 
+ 	if (!ksu_sid) {
+-		security_secctx_to_secid("u:r:ksu:s0", strlen("u:r:ksu:s0"), &ksu_sid);
++		security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &ksu_sid);
+ 	}
+ 	error = security_secid_to_secctx(old_tsec->sid, &secdata, &seclen);
+ 	if (!error) {
