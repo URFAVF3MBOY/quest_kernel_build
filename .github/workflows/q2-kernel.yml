@@ -28,6 +28,7 @@ jobs:
             q2_build/build/oculus-quest2-device-kernel/Image
             q2_build/build/oculus-quest2-device-kernel/Image.gz-dtb
             q2_build/build/oculus-quest2-device-kernel/vmlinux
+            q2_build/build/oculus-quest2-device-kernel/boot-repacked.img
             q2_build/build/oculus-quest2-device-kernel/System.map
             q2_build/build/oculus-quest2-device-kernel/.config
             q2_build/build/oculus-quest2-device-kernel/dtbs/**

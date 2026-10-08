@@ -1,0 +1,157 @@
+name: Quest 1 Recovery Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      recovery:
+        description: "Recovery target"
+        required: true
+        type: choice
+        default: twrp
+        options:
+          - twrp
+          - lineage
+
+      jobs:
+        description: "Parallel build jobs"
+        required: true
+        default: "4"
+        type: string
+
+jobs:
+
+  recovery:
+    name: Quest 1 ${{ inputs.recovery }} Recovery
+    runs-on: ubuntu-22.04
+
+    timeout-minutes: 240
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      #########################################################################
+      # Dependencies
+      #########################################################################
+
+      - name: Install Android build dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            adb \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            clang \
+            curl \
+            flex \
+            g++-multilib \
+            gcc-multilib \
+            git \
+            gnupg \
+            gperf \
+            imagemagick \
+            lib32ncurses5-dev \
+            lib32readline-dev \
+            lib32z1-dev \
+            libelf-dev \
+            liblz4-tool \
+            libncurses5 \
+            libncurses5-dev \
+            libssl-dev \
+            libxml2-utils \
+            lzop \
+            openjdk-8-jdk \
+            pngcrush \
+            python3 \
+            rsync \
+            schedtool \
+            squashfs-tools \
+            unzip \
+            xsltproc \
+            zip \
+            zlib1g-dev
+
+      #########################################################################
+      # repo
+      #########################################################################
+
+      - name: Install repo
+        run: |
+          mkdir -p "${HOME}/bin"
+
+          curl -fsSL \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            -o "${HOME}/bin/repo"
+
+          chmod +x "${HOME}/bin/repo"
+
+          echo "${HOME}/bin" >> "${GITHUB_PATH}"
+
+      #########################################################################
+      # Git configuration
+      #########################################################################
+
+      - name: Configure git
+        run: |
+          git config --global user.name "Quest 1 Recovery Builder"
+          git config --global user.email "actions@github.com"
+
+      #########################################################################
+      # ccache
+      #########################################################################
+
+      - name: Configure ccache
+        run: |
+          mkdir -p "${HOME}/.ccache"
+
+          ccache --max-size=5G
+
+          echo "USE_CCACHE=1" >> "${GITHUB_ENV}"
+          echo "CCACHE_EXEC=$(command -v ccache)" >> "${GITHUB_ENV}"
+
+      #########################################################################
+      # Build
+      #########################################################################
+
+      - name: Build recovery
+        working-directory: q1_build
+        env:
+          JOBS: ${{ inputs.jobs }}
+        run: |
+          chmod +x build-recovery.sh
+
+          ./build-recovery.sh "${{ inputs.recovery }}"
+
+      #########################################################################
+      # Upload TWRP image
+      #########################################################################
+
+      - name: Upload TWRP recovery
+        if: ${{ inputs.recovery == 'twrp' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest1-twrp-recovery
+          path: |
+            q1_build/build/recovery/twrp/recovery.img
+            q1_build/build/recovery/twrp/recovery.img.sha256
+            q1_build/build/recovery/twrp/build-info.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      #########################################################################
+      # Upload Lineage source
+      #########################################################################
+
+      - name: Upload Lineage recovery port information
+        if: ${{ inputs.recovery == 'lineage' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest1-lineage-recovery-source-info
+          path: |
+            q1_build/build/recovery/lineage-source/build-info.txt
+          if-no-files-found: error
+          retention-days: 30
