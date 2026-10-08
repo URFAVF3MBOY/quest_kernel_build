@@ -64,17 +64,6 @@ index d064860c1..823bc3347 100644
  	/* allocate a contiguous page aligned buffer */
  	default_bridge.size = DEFAULT_BRIDGE_SIZE;
  	default_bridge.vaddr = (void *)__get_free_pages(GFP_KERNEL|__GFP_COMP,
-diff --git a/drivers/staging/qcacld-3.0/Kbuild b/drivers/staging/qcacld-3.0/Kbuild
-index 86e2e9f4e..e6c7088b2 100644
---- a/drivers/staging/qcacld-3.0/Kbuild
-+++ b/drivers/staging/qcacld-3.0/Kbuild
-@@ -1,5 +1,5 @@
- # Redirect root path through a symlink to avoid command line overflows
--PATCH_LONG_PATH := $(srctree)/drivers/staging/qcacld-3.0
-+PATCH_LONG_PATH := $(abspath $(srctree)/drivers/staging/qcacld-3.0)
- PATCH_SHORT_PATH := /tmp/qcacld-3.0
- PATCH_SYMLINK := $(shell ln -nsf $(PATCH_LONG_PATH) $(PATCH_SHORT_PATH))
- 
 diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
 index 185db2ddc..0106e9363 100644
 --- a/drivers/thermal/thermal_core.c
@@ -104,13 +93,11 @@ diff --git a/techpack/camera/drivers/cam_sensor_module/cam_cci/Makefile b/techpa
 index a1301bf41..c3f7ab1b1 100644
 --- a/techpack/camera/drivers/cam_sensor_module/cam_cci/Makefile
 +++ b/techpack/camera/drivers/cam_sensor_module/cam_cci/Makefile
-@@ -8,5 +8,6 @@ ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_sensor_module/cam_sensor_i
- ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_sensor_module/cam_sensor_utils
- ccflags-y += -I$(srctree)/techpack/camera/drivers/cam_smmu
+@@ -11,2 +11,3 @@
  ccflags-y += -I$(srctree)
 +ccflags-y += -I$(src)
  
- obj-$(CONFIG_SPECTRA_CAMERA) += cam_cci_dev.o cam_cci_core.o cam_cci_soc.o
+
 diff --git a/techpack/display/pll/Makefile b/techpack/display/pll/Makefile
 index 0b29a90ca..065f7e189 100644
 --- a/techpack/display/pll/Makefile

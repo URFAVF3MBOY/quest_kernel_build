@@ -169,7 +169,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
 if [ ! -d "$KERNEL_DIR" ]; then
   log "Cloning oculus-linux-kernel (oculus-quest-kernel-master)"
   git clone --depth 1 --branch oculus-quest-kernel-master \
-    https://github.com/URFAVF3MBOY/monterey-kernelsu-next "$KERNEL_DIR"
+    https://github.com/URFAVF3MBOY/monterey-kernelsu-next.git "$KERNEL_DIR"
 fi
 if [ -n "$KERNEL_COMMIT" ]; then
   cd "$KERNEL_DIR"
@@ -401,9 +401,15 @@ echo
 echo "KernelSU source/object files:"
 find -L drivers/kernelsu -maxdepth 2 -type f \( -name 'ksud.c' -o -name 'ksud.o' \) -print
 
-if [ "$KSU" = "1" ] && ! nm vmlinux | grep -q ' [tT] ksu_'; then
-  echo "ERROR: CONFIG_KSU=y but no ksu_* symbols found in vmlinux" >&2
-  exit 1
+if [ "$KSU" = "1" ]; then
+  # Count instead of `grep -q`: with `set -o pipefail`, grep -q exits early,
+  # nm dies of SIGPIPE and the pipeline reports failure even on a match.
+  KSU_SYM_COUNT="$(nm vmlinux | grep -c ' [tT] ksu_' || true)"
+  if [ "${KSU_SYM_COUNT:-0}" -eq 0 ]; then
+    echo "ERROR: CONFIG_KSU=y but no ksu_* symbols found in vmlinux" >&2
+    exit 1
+  fi
+  echo "ksu_* text symbols in vmlinux: $KSU_SYM_COUNT"
 fi
 
 cp System.map "$OUT_DEVICE/System.map"

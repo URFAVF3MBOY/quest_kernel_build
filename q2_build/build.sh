@@ -15,7 +15,6 @@
 #   REAL_BOOT_IMG at one) - step 5b repacks it around the new kernel:
 #     REAL_BOOT_IMG=/path/to/boot.img ./build.sh
 #     fastboot boot build/oculus-quest2-device-kernel/boot-repacked.img
-#
 #   `fastboot boot` is one-shot and non-destructive; it does not write the
 #   boot partition. Never `fastboot flash boot` a kernel built here.
 #
@@ -28,36 +27,55 @@ KERNEL_DIR="$WORK_DIR/oculus-linux-kernel"
 TOOLCHAIN_DIR="$WORK_DIR/toolchain"
 CLANG_DIR="$TOOLCHAIN_DIR/clang-r450784e"
 BUILD_DIR="$WORK_DIR/build"
+# Pin to a specific commit instead of tracking branch HEAD. Empty = branch
+# HEAD (whatever oculus-quest2-kernel-master currently points at).
+KERNEL_COMMIT="${KERNEL_COMMIT:-}"
 
-# Stock boot.img pulled from the device you are going to boot on.
-#
-# Example:
-#   adb root
-#   adb shell dd if=/dev/block/bootdevice/by-name/boot_a \
-#       of=/data/local/tmp/boot.img
+# Stock boot.img pulled from the device you are going to boot on, e.g.
+#   adb root && adb shell dd if=/dev/block/bootdevice/by-name/boot_a of=/data/local/tmp/boot.img
 #   adb pull /data/local/tmp/boot.img
-#
-# If present, step 5b repacks it around the newly built kernel.
+# If present, step 5b repacks it around the kernel built here (keeping its
+# ramdisk and every header field) into a `fastboot boot`-able image. If
+# absent, that step is skipped and only the raw kernel artifacts are built.
 REAL_BOOT_IMG="${REAL_BOOT_IMG:-$WORK_DIR/boot.img}"
 
 # --- How a self-built kernel gets past /system's dm-verity ------------------
-#
 # The stock cmdline carries `buildvariant=user`. With that,
 # drivers/md/dm-android-verity.c verifies /system's verity metadata
-# signature against the kernel's built-in trusted keyring.
+# signature against the kernel's *built-in* trusted keyring
+# (CONFIG_SYSTEM_TRUSTED_KEYS) on every boot. That keyring can only be
+# populated with Meta's own signing certificate, which is not in this
+# source tree - so on any kernel built from public sources the check fails,
+# `android_verity_ctr()` bails, /system never mounts, and init hangs
+# forever with nothing in pstore to say why. Note the unlocked-bootloader
+# escape hatch does NOT cover this: `is_unlocked()` is only consulted when
+# the metadata is *malformed*, not when its signature fails to verify.
 #
-# `buildvariant=eng` causes dm-android-verity to bypass the verification
-# path and create the linear device directly.
+# `buildvariant=eng` is the supported way out, and it is a one-word cmdline
+# change rather than a certificate hunt. It is checked much earlier, in
+# android_verity_ctr():
 #
-# Trade-off: /system is mounted without integrity checking.
+#     if (is_eng())
+#             return create_linear_device(ti, dev, target_device);
 #
-# Set VERITY_BYPASS=0 to keep the stock cmdline verbatim.
+# i.e. before the metadata is read, before the key id is looked up and
+# before the keyring is touched at all - /system is mapped as a plain
+# linear device, which is exactly what an eng build does. `buildvariant=`
+# is parsed by dm-android-verity.c and nothing else in the tree, so this
+# affects no other subsystem, needs no source patch, and leaves
+# CONFIG_SYSTEM_TRUSTED_KEYS empty.
+#
+# Trade-off, stated plainly: /system is then mounted without integrity
+# checking. That is inherent to booting a kernel Meta did not sign - there
+# is no configuration in which a self-built kernel both verifies /system
+# and boots. Set VERITY_BYPASS=0 to keep the stock cmdline verbatim.
 VERITY_BYPASS="${VERITY_BYPASS:-1}"
 
-# Kernel cmdline to bake into the repacked boot.img.
-#
-# Empty = take the stock image's cmdline and apply the VERITY_BYPASS edit.
-# Non-empty = use this cmdline verbatim.
+# Kernel cmdline to bake into the repacked boot.img. Unset (the default)
+# means "take the stock image's own cmdline and apply the VERITY_BYPASS
+# edit to it" - the stock cmdline carries board-specific parameters
+# (androidboot.hardware, etc.) that must survive, so it is edited rather
+# than replaced. Any non-empty value here wins and is used verbatim.
 KERNEL_CMDLINE="${KERNEL_CMDLINE-}"
 
 # --- Optional: KernelSU / KernelSU-Next --------------------------------------
@@ -115,110 +133,64 @@ if [ ! -f "$KERNEL_CONFIG" ]; then
   exit 1
 fi
 
-# --- 1. Host dependencies ---------------------------------------------------
+# --- 1. Host dependencies -----------------------------------------------
 log "Installing host build dependencies"
-
 sudo DEBIAN_FRONTEND=noninteractive apt-get update
-
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  build-essential \
-  bc \
-  bison \
-  flex \
-  libssl-dev \
-  libelf-dev \
-  gcc-aarch64-linux-gnu \
-  g++-aarch64-linux-gnu \
-  git \
-  wget \
-  cpio \
-  unzip \
-  rsync \
-  kmod \
-  device-tree-compiler \
-  python3-dev \
-  make \
-  libncurses-dev \
-  gcc-12 \
-  g++-12 \
-  dwarves \
-  expect
+  build-essential bc bison flex libssl-dev libelf-dev \
+  gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+  git wget cpio unzip rsync kmod device-tree-compiler python3-dev make \
+  libncurses-dev gcc-12 g++-12 dwarves expect mkbootimg
 
-# --- 2. Kernel source -------------------------------------------------------
+# --- 2. Kernel source -----------------------------------------------------
 if [ ! -d "$KERNEL_DIR/.git" ]; then
   log "Cloning oculus-linux-kernel"
-
-  git clone \
-    https://github.com/facebookincubator/oculus-linux-kernel.git \
-    "$KERNEL_DIR"
+  git clone https://github.com/facebookincubator/oculus-linux-kernel.git "$KERNEL_DIR"
 fi
 
 cd "$KERNEL_DIR"
 
-# ALWAYS use the latest commit currently pointed to by the upstream branch.
-log "Fetching latest oculus-quest2-kernel-master"
+if [ -n "$KERNEL_COMMIT" ]; then
+  log "Checking out exact kernel commit $KERNEL_COMMIT"
 
-git fetch --no-tags origin oculus-quest2-kernel-master
+  git fetch --no-tags origin "$KERNEL_COMMIT"
+  git checkout --detach "$KERNEL_COMMIT"
 
-git checkout --detach origin/oculus-quest2-kernel-master
+  ACTUAL_COMMIT="$(git rev-parse HEAD)"
 
-echo "Using kernel commit:"
-git rev-parse HEAD
+  if [ "$ACTUAL_COMMIT" != "$KERNEL_COMMIT" ]; then
+    echo "ERROR: kernel commit mismatch!" >&2
+    echo "Expected: $KERNEL_COMMIT" >&2
+    echo "Actual:   $ACTUAL_COMMIT" >&2
+    exit 1
+  fi
 
-echo
-echo "Kernel commit:"
-git log -1 --oneline
+  echo "Kernel source verified at: $ACTUAL_COMMIT"
+else
+  log "No KERNEL_COMMIT specified; using oculus-quest2-kernel-master"
 
-# Remove references to Oculus internal kernel sources that are not included
-# in the public repository.
-sed -i \
-  '/source "drivers\/staging\/oculus\/internal\/Kconfig"/d' \
-  "$KERNEL_DIR/drivers/staging/oculus/Kconfig"
+  git fetch --no-tags origin oculus-quest2-kernel-master
+  git checkout --detach origin/oculus-quest2-kernel-master
+fi
 
-sed -i \
-  '/obj-y[[:space:]]*+=[[:space:]]*internal\//d' \
-  "$KERNEL_DIR/drivers/staging/oculus/Makefile"
+sed -i '/source "drivers\/staging\/oculus\/internal\/Kconfig"/d' \
+    "$KERNEL_DIR/drivers/staging/oculus/Kconfig"
+
+sed -i '/obj-y[[:space:]]*+=[[:space:]]*internal\//d' \
+    "$KERNEL_DIR/drivers/staging/oculus/Makefile"
 
 cd "$WORK_DIR"
 
-# --- 3. Vendor toolchain ----------------------------------------------------
-# AOSP prebuilt Clang r450784e / 14.0.7
-
+# --- 3. Vendor toolchain (AOSP prebuilt Clang r450784e / 14.0.7) -----------
 mkdir -p "$TOOLCHAIN_DIR"
-
 if [ ! -x "$CLANG_DIR/bin/clang" ]; then
   log "Fetching clang-r450784e toolchain"
-
   rm -rf "$CLANG_DIR"
   mkdir -p "$CLANG_DIR"
-
-  curl -sL \
-    -o "$TOOLCHAIN_DIR/clang-r450784e.tar.gz" \
+  curl -sL -o "$TOOLCHAIN_DIR/clang-r450784e.tar.gz" \
     "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2022/clang-r450784e.tar.gz"
-
-  tar -xzf \
-    "$TOOLCHAIN_DIR/clang-r450784e.tar.gz" \
-    -C "$CLANG_DIR"
-
+  tar -xzf "$TOOLCHAIN_DIR/clang-r450784e.tar.gz" -C "$CLANG_DIR"
   rm -f "$TOOLCHAIN_DIR/clang-r450784e.tar.gz"
-fi
-
-# --- 3b. mkbootimg/unpack_bootimg scripts ----------------------------------
-#
-# Ubuntu's packaged mkbootimg may be too old to support
-# unpack_bootimg --format=mkbootimg, so fetch the AOSP scripts directly.
-
-MKBOOTIMG_DIR="$TOOLCHAIN_DIR/mkbootimg-src"
-
-if [ ! -d "$MKBOOTIMG_DIR/.git" ]; then
-  log "Fetching mkbootimg/unpack_bootimg scripts from AOSP"
-
-  rm -rf "$MKBOOTIMG_DIR"
-
-  git clone \
-    --depth 1 \
-    https://android.googlesource.com/platform/system/tools/mkbootimg \
-    "$MKBOOTIMG_DIR"
 fi
 
 export PATH="$CLANG_DIR/bin:$PATH"
@@ -231,12 +203,15 @@ export KCFLAGS="-march=armv8.1-a"
 
 # --- 4. Apply source-tree fixes --------------------------------------------
 log "Applying kernel source fixes (oculus-kernel-fixes.patch)"
-
 cd "$KERNEL_DIR"
-
-git apply "$WORK_DIR/oculus-kernel-fixes.patch"
-
-cd "$WORK_DIR"
+if git apply --check "$WORK_DIR/oculus-kernel-fixes.patch" 2>/dev/null; then
+  git apply "$WORK_DIR/oculus-kernel-fixes.patch"
+elif git apply --check --reverse "$WORK_DIR/oculus-kernel-fixes.patch" 2>/dev/null; then
+  echo "Patch already applied, skipping."
+else
+  echo "ERROR: oculus-kernel-fixes.patch does not apply cleanly and is not already applied." >&2
+  exit 1
+fi
 
 # --- 4b. KernelSU integration (KSU=1 only) -----------------------------------
 # Same layout KernelSU's own setup.sh produces: the repo lives next to the
@@ -325,37 +300,27 @@ fi
 make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" \
   -j"$(nproc)" Image dtbs
 # Only produces output if this kernel.config has
-# CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y.
-# Harmless no-op otherwise.
-make \
-  ARCH="$ARCH" \
-  LLVM=1 \
-  LLVM_IAS=0 \
-  CROSS_COMPILE="$CROSS_COMPILE" \
-  REAL_CC=clang \
-  KCFLAGS="-march=armv8.1-a" \
-  -j"$(nproc)" \
-  Image.gz-dtb || true
+# CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y; harmless no-op otherwise.
+make ARCH=$ARCH LLVM=1 LLVM_IAS=0 CROSS_COMPILE=$CROSS_COMPILE REAL_CC=clang KCFLAGS="-march=armv8.1-a" \
+  -j"$(nproc)" Image.gz-dtb || true
 
 OUT_DEVICE="$BUILD_DIR/oculus-quest2-device-kernel"
-
 mkdir -p "$OUT_DEVICE/dtbs"
-
-cp \
-  arch/arm64/boot/Image \
-  "$OUT_DEVICE/Image"
-
+cp arch/arm64/boot/Image "$OUT_DEVICE/Image"
 if [ -f arch/arm64/boot/Image.gz-dtb ]; then
   cp arch/arm64/boot/Image.gz-dtb "$OUT_DEVICE/Image.gz-dtb"
 fi
 cp vmlinux "$OUT_DEVICE/vmlinux"
 if [ "$KSU" = "1" ]; then
   log "Verifying $KSU_NAME was compiled into vmlinux"
-  if ! nm vmlinux | grep -q ' [tT] ksu_'; then
+  # Count instead of `grep -q` / `| head`: with `set -o pipefail` an early-exiting
+  # reader makes nm die of SIGPIPE and the pipeline "fails" even on a match.
+  KSU_SYM_COUNT="$(nm vmlinux | grep -c ' [tT] ksu_' || true)"
+  if [ "${KSU_SYM_COUNT:-0}" -eq 0 ]; then
     echo "ERROR: CONFIG_KSU=y but no ksu_* symbols found in vmlinux" >&2
     exit 1
   fi
-  nm vmlinux | grep -E ' [tT] ksu_' | head -40
+  echo "ksu_* text symbols in vmlinux: $KSU_SYM_COUNT"
 fi
 cp System.map "$OUT_DEVICE/System.map"
 cp .config "$OUT_DEVICE/.config"
@@ -458,4 +423,8 @@ else
   echo "to also get a fastboot-bootable image."
 fi
 
-cp vmlinux "$OUT_DEVICE_
+log "Done."
+echo "Real Quest 2 kernel:  $OUT_DEVICE/"
+if [ -f "${NEW_BOOT_IMG:-}" ]; then
+  echo "Repacked boot.img:    $NEW_BOOT_IMG   (fastboot boot \"$NEW_BOOT_IMG\")"
+fi
